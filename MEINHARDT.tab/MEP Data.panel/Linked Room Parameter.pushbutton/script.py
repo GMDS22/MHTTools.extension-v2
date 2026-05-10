@@ -32,34 +32,48 @@ __doc__ = "Select a room from a linked model and transfer room parameter values 
 
 
 TARGET_CATEGORIES = [
+    # MEP Spaces & Zones
+    ("Spaces", BuiltInCategory.OST_MEPSpaces),
+    ("HVAC Zones", BuiltInCategory.OST_HVAC_Zones),
+    # Ducts
     ("Ducts", BuiltInCategory.OST_DuctCurves),
     ("Duct Fittings", BuiltInCategory.OST_DuctFitting),
     ("Duct Accessories", BuiltInCategory.OST_DuctAccessory),
+    ("Duct Insulations", BuiltInCategory.OST_DuctInsulations),
+    ("Flex Ducts", BuiltInCategory.OST_FlexDuctCurves),
     ("Air Terminals", BuiltInCategory.OST_DuctTerminal),
     ("Mechanical Equipment", BuiltInCategory.OST_MechanicalEquipment),
-    ("Flex Ducts", BuiltInCategory.OST_FlexDuctCurves),
+    # Pipes
     ("Pipes", BuiltInCategory.OST_PipeCurves),
     ("Pipe Fittings", BuiltInCategory.OST_PipeFitting),
     ("Pipe Accessories", BuiltInCategory.OST_PipeAccessory),
+    ("Pipe Insulations", BuiltInCategory.OST_PipeInsulations),
+    ("Flex Pipes", BuiltInCategory.OST_FlexPipeCurves),
     ("Plumbing Fixtures", BuiltInCategory.OST_PlumbingFixtures),
     ("Sprinklers", BuiltInCategory.OST_Sprinklers),
-    ("Flex Pipes", BuiltInCategory.OST_FlexPipeCurves),
-    ("Duct Insulations", BuiltInCategory.OST_DuctInsulations),
-    ("Pipe Insulations", BuiltInCategory.OST_PipeInsulations),
-    ("Lighting Fixtures", BuiltInCategory.OST_LightingFixtures),
-    ("Lighting Devices", BuiltInCategory.OST_LightingDevices),
+    # Electrical
+    ("Cable Trays", BuiltInCategory.OST_CableTray),
+    ("Cable Tray Fittings", BuiltInCategory.OST_CableTrayFitting),
+    ("Conduits", BuiltInCategory.OST_Conduit),
+    ("Conduit Fittings", BuiltInCategory.OST_ConduitFitting),
     ("Electrical Equipment", BuiltInCategory.OST_ElectricalEquipment),
     ("Electrical Fixtures", BuiltInCategory.OST_ElectricalFixtures),
+    ("Lighting Fixtures", BuiltInCategory.OST_LightingFixtures),
+    ("Lighting Devices", BuiltInCategory.OST_LightingDevices),
+    # Low Voltage Devices
     ("Data Devices", BuiltInCategory.OST_DataDevices),
     ("Communication Devices", BuiltInCategory.OST_CommunicationDevices),
     ("Fire Alarm Devices", BuiltInCategory.OST_FireAlarmDevices),
     ("Nurse Call Devices", BuiltInCategory.OST_NurseCallDevices),
     ("Security Devices", BuiltInCategory.OST_SecurityDevices),
     ("Telephone Devices", BuiltInCategory.OST_TelephoneDevices),
-    ("Cable Trays", BuiltInCategory.OST_CableTray),
-    ("Conduits", BuiltInCategory.OST_Conduit),
+    # Architectural / General
     ("Generic Models", BuiltInCategory.OST_GenericModel),
     ("Speciality Equipment", BuiltInCategory.OST_SpecialityEquipment),
+    ("Casework", BuiltInCategory.OST_Casework),
+    ("Furniture", BuiltInCategory.OST_Furniture),
+    ("Furniture Systems", BuiltInCategory.OST_FurnitureSystems),
+    ("Medical Equipment", BuiltInCategory.OST_MedicalEquipment),
 ]
 
 
@@ -253,6 +267,10 @@ class CategorySelectionFilter(ISelectionFilter):
 
 
 class LinkedRoomTransferWindow(WPFWindow):
+    # Boundary extraction is expensive and has caused instability in some models.
+    # Keep direct Revit room containment as the primary method.
+    _ENABLE_BOUNDARY_FALLBACK = False
+
     def __init__(self, xaml_file_name):
         WPFWindow.__init__(self, xaml_file_name)
 
@@ -272,6 +290,8 @@ class LinkedRoomTransferWindow(WPFWindow):
         self.selected_link_index = 0
 
         self._load_links()
+        if not self.links:
+            return
         self._populate_link_selector()
         self._build_category_list()
         self._try_seed_current_selection()
@@ -279,8 +299,20 @@ class LinkedRoomTransferWindow(WPFWindow):
     def _load_links(self):
         self.links = [lk for lk in get_link_instances(doc) if lk.GetLinkDocument() is not None]
         if not self.links:
-            forms.alert("No loaded Revit links found. Load at least one linked model and retry.", exitscript=True)
+            forms.alert("No loaded Revit links found. Load at least one linked model and retry.")
+            self.Close()
             return
+
+    def _confirm(self, message, title="Confirm"):
+        """Show a safe yes/no confirmation that works across pyRevit versions."""
+        try:
+            result = forms.alert(message, title=title, yes=True, no=True)
+            if isinstance(result, bool):
+                return result
+            text = (str(result) if result is not None else "").strip().lower()
+            return text in ("yes", "y", "true", "ok", "1")
+        except Exception:
+            return False
 
     def _populate_link_selector(self):
         """Populate the link selector dropdown with available linked models."""
@@ -589,6 +621,17 @@ class LinkedRoomTransferWindow(WPFWindow):
         if element is None:
             return None
 
+        # For MEP Spaces: Location is a LocationPoint; get it directly and avoid
+        # an expensive bounding-box call on a view that may not show the space.
+        try:
+            cat = element.Category
+            if cat is not None and cat.Id.IntegerValue == int(BuiltInCategory.OST_MEPSpaces):
+                loc = element.Location
+                if loc is not None and hasattr(loc, "Point") and loc.Point is not None:
+                    return loc.Point
+        except Exception:
+            pass
+
         try:
             loc = element.Location
             if loc is not None:
@@ -600,9 +643,9 @@ class LinkedRoomTransferWindow(WPFWindow):
             pass
 
         try:
-            bb = element.get_BoundingBox(doc.ActiveView)
+            bb = element.get_BoundingBox(None)
             if bb is None:
-                bb = element.get_BoundingBox(None)
+                bb = element.get_BoundingBox(doc.ActiveView)
             if bb is not None:
                 return XYZ(
                     (bb.Min.X + bb.Max.X) * 0.5,
@@ -679,6 +722,41 @@ class LinkedRoomTransferWindow(WPFWindow):
             pass
         return "Active View Level"
 
+    def _get_active_level(self):
+        try:
+            active_view = doc.ActiveView
+            if active_view is not None:
+                return active_view.GenLevel
+        except Exception:
+            pass
+        return None
+
+    def _element_matches_active_level(self, element):
+        """Cross-category active-level check used to trim project-wide fallbacks."""
+        active_level = self._get_active_level()
+        if active_level is None:
+            return True
+
+        try:
+            level_id = getattr(element, "LevelId", None)
+            if level_id is not None and getattr(level_id, "IntegerValue", -1) > 0:
+                return level_id.IntegerValue == active_level.Id.IntegerValue
+        except Exception:
+            pass
+
+        # For family-based elements and many MEP categories.
+        try:
+            p = element.LookupParameter("Reference Level")
+            if p is not None and p.HasValue:
+                lvl_id = p.AsElementId()
+                if lvl_id is not None and lvl_id.IntegerValue > 0:
+                    return lvl_id.IntegerValue == active_level.Id.IntegerValue
+        except Exception:
+            pass
+
+        # If we cannot determine a level, keep element instead of false-negative filtering.
+        return True
+
     def _room_matches_active_level(self, room, room_doc, tol=0.01):
         """Match linked room to host active view level by elevation/name, not ElementId."""
         try:
@@ -711,7 +789,7 @@ class LinkedRoomTransferWindow(WPFWindow):
 
     def _build_room_detection_index(self, scope_mode=None):
         self.room_detection_index = []
-        opts = SpatialElementBoundaryOptions()
+        opts = SpatialElementBoundaryOptions() if self._ENABLE_BOUNDARY_FALLBACK else None
         scope_mode = scope_mode or self._get_auto_detect_scope()
         filter_by_active_level = (scope_mode != "Entire Project")
 
@@ -745,28 +823,40 @@ class LinkedRoomTransferWindow(WPFWindow):
                 maxx = None
                 maxy = None
 
-                try:
-                    seg_loops = room.GetBoundarySegments(opts)
-                except Exception:
-                    seg_loops = None
+                if self._ENABLE_BOUNDARY_FALLBACK:
+                    try:
+                        seg_loops = room.GetBoundarySegments(opts)
+                    except Exception as ex:
+                        # Log the error and continue - don't let one room's boundary issue crash everything
+                        logger.debug("Failed to get boundary segments for room {0}: {1}".format(room.Id.IntegerValue, str(ex)))
+                        seg_loops = None
 
-                if seg_loops:
-                    for seg_loop in seg_loops:
-                        poly = []
-                        for seg in seg_loop:
-                            try:
-                                p0 = seg.GetCurve().GetEndPoint(0)
-                                poly.append((p0.X, p0.Y))
-                            except Exception:
-                                continue
+                    if seg_loops:
+                        try:
+                            for seg_loop in seg_loops:
+                                if seg_loop is None:
+                                    continue
+                                poly = []
+                                for seg in seg_loop:
+                                    try:
+                                        curve = seg.GetCurve()
+                                        if curve is None:
+                                            continue
+                                        p0 = curve.GetEndPoint(0)
+                                        if p0 is not None:
+                                            poly.append((p0.X, p0.Y))
+                                    except Exception:
+                                        continue
 
-                        if len(poly) >= 3:
-                            loops.append(poly)
-                            for x, y in poly:
-                                minx = x if minx is None else min(minx, x)
-                                miny = y if miny is None else min(miny, y)
-                                maxx = x if maxx is None else max(maxx, x)
-                                maxy = y if maxy is None else max(maxy, y)
+                                if len(poly) >= 3:
+                                    loops.append(poly)
+                                    for x, y in poly:
+                                        minx = x if minx is None else min(minx, x)
+                                        miny = y if miny is None else min(miny, y)
+                                        maxx = x if maxx is None else max(maxx, x)
+                                        maxy = y if maxy is None else max(maxy, y)
+                        except Exception as ex:
+                            logger.debug("Error processing boundary loops for room {0}: {1}".format(room.Id.IntegerValue, str(ex)))
 
                 has_boundary = bool(loops) and minx is not None
 
@@ -809,23 +899,65 @@ class LinkedRoomTransferWindow(WPFWindow):
 
             # Fall back to boundary polygon tests when boundary data is available.
             if room_item.get("has_boundary"):
-                px = p.X
-                py = p.Y
-                if px < (room_item["minx"] - tol) or px > (room_item["maxx"] + tol):
-                    continue
-                if py < (room_item["miny"] - tol) or py > (room_item["maxy"] + tol):
-                    continue
+                try:
+                    px = p.X
+                    py = p.Y
+                    if px < (room_item["minx"] - tol) or px > (room_item["maxx"] + tol):
+                        continue
+                    if py < (room_item["miny"] - tol) or py > (room_item["maxy"] + tol):
+                        continue
 
-                hit = False
-                for poly in room_item["loops"]:
-                    if self._point_in_polygon_2d(px, py, poly, tol):
-                        hit = True
-                        break
+                    hit = False
+                    for poly in room_item["loops"]:
+                        if self._point_in_polygon_2d(px, py, poly, tol):
+                            hit = True
+                            break
 
-                if hit:
-                    return room_item
+                    if hit:
+                        return room_item
+                except Exception:
+                    # If boundary test fails, continue to next room
+                    continue
 
         return None
+
+    # Categories that do not support view-based FilteredElementCollector filtering.
+    # These must always be collected project-wide even in "Active View Level" mode.
+    _VIEW_UNSAFE_CATEGORIES = {
+        int(BuiltInCategory.OST_HVAC_Zones),
+        int(BuiltInCategory.OST_MEPSpaces),
+    }
+
+    def _collect_category_elements(self, bic, scope_mode):
+        """Safely collect elements for a single category, falling back to project-wide when needed."""
+        # Some categories (HVAC Zones, Spaces) do not support view-based collection.
+        use_project_wide = (
+            scope_mode == "Entire Project"
+            or int(bic) in self._VIEW_UNSAFE_CATEGORIES
+        )
+        try:
+            if use_project_wide:
+                return (
+                    FilteredElementCollector(doc)
+                    .OfCategory(bic)
+                    .WhereElementIsNotElementType()
+                )
+            else:
+                return (
+                    FilteredElementCollector(doc, doc.ActiveView.Id)
+                    .OfCategory(bic)
+                    .WhereElementIsNotElementType()
+                )
+        except Exception:
+            # Last-resort fallback: try project-wide if view-based failed
+            try:
+                return (
+                    FilteredElementCollector(doc)
+                    .OfCategory(bic)
+                    .WhereElementIsNotElementType()
+                )
+            except Exception:
+                return []
 
     def _iter_selected_category_elements(self, scope_mode=None):
         allowed_ids = set(self._selected_category_ids())
@@ -836,34 +968,50 @@ class LinkedRoomTransferWindow(WPFWindow):
 
         items = []
         seen = set()
+
+        # Safety limit: prevent unbounded collection when using "Entire Project"
+        max_elements = 5000 if scope_mode == "Entire Project" else 50000
+
         for _, bic in TARGET_CATEGORIES:
             if int(bic) not in allowed_ids:
                 continue
 
-            try:
-                if scope_mode == "Entire Project":
-                    coll = (
-                        FilteredElementCollector(doc)
-                        .OfCategory(bic)
-                        .WhereElementIsNotElementType()
-                    )
-                else:
-                    coll = (
-                        FilteredElementCollector(doc, doc.ActiveView.Id)
-                        .OfCategory(bic)
-                        .WhereElementIsNotElementType()
-                    )
-            except Exception:
-                coll = []
-
-            for el in coll:
+            collected = self._collect_category_elements(bic, scope_mode)
+            for el in collected:
                 if el is None:
                     continue
-                eid = el.Id.IntegerValue
+
+                # Spaces / Zones are collected project-wide in view mode; trim to active level.
+                if scope_mode != "Entire Project" and int(bic) in self._VIEW_UNSAFE_CATEGORIES:
+                    if not self._element_matches_active_level(el):
+                        continue
+
+                try:
+                    eid = el.Id.IntegerValue
+                except Exception:
+                    continue
                 if eid in seen:
                     continue
                 seen.add(eid)
+                # Skip unplaced/redundant spaces (area == 0 or no valid location)
+                if int(bic) == int(BuiltInCategory.OST_MEPSpaces):
+                    try:
+                        area = el.Area
+                        if area <= 0.0:
+                            continue
+                    except Exception:
+                        pass
+                    try:
+                        loc = el.Location
+                        if loc is None:
+                            continue
+                    except Exception:
+                        continue
                 items.append(el)
+
+                # Stop if we've collected too many elements
+                if len(items) >= max_elements:
+                    return items
 
         return items
 
@@ -880,78 +1028,96 @@ class LinkedRoomTransferWindow(WPFWindow):
         return values
 
     def auto_detect_elements_click(self, sender, e):
-        allowed_ids = self._selected_category_ids()
-        if not allowed_ids:
-            forms.alert("Select at least one target category.")
-            return
+        try:
+            allowed_ids = self._selected_category_ids()
+            if not allowed_ids:
+                forms.alert("Select at least one target category.")
+                return
 
-        scope_mode = self._get_auto_detect_scope()
+            scope_mode = self._get_auto_detect_scope()
 
-        candidates = self._iter_selected_category_elements(scope_mode)
-        if not candidates:
-            forms.alert(
-                "No elements found in {0} for selected categories.".format(
-                    "entire project" if scope_mode == "Entire Project" else "active view level"
+            # Show warning for "Entire Project" scope
+            if scope_mode == "Entire Project":
+                warning_msg = (
+                    "WARNING: 'Entire Project' scope will search through ALL MEP elements in the project.\n\n"
+                    "This can be SLOW or may hang/crash Revit on large projects.\n\n"
+                    "Recommendations:\n"
+                    "1. Try 'Active View Level' scope first if elements are on one level\n"
+                    "2. Pre-select elements in your view, then use 'Use Current Selection'\n"
+                    "3. If project is very large, consider filtering by category first\n\n"
+                    "Continue with 'Entire Project' search?"
                 )
-            )
-            return
+                if not self._confirm(warning_msg, title="Large Scope Warning"):
+                    return
 
-        self._build_room_detection_index(scope_mode)
-        if not self.room_detection_index:
-            forms.alert(
-                "No linked rooms were indexed for {0}.\n"
-                "Tip: try 'Entire Project' scope in Step 2B, or use Step 1 Detect Rooms to confirm links contain rooms."
-                .format("entire project" if scope_mode == "Entire Project" else "active view level")
-            )
-            return
-
-        self.element_room_map = {}
-        matched_elements = []
-        room_hit_count = defaultdict(int)
-
-        for el in candidates:
-            pt = self._get_element_probe_point(el)
-            room_item = self._find_linked_room_for_host_point(pt)
-            if room_item is None:
-                continue
-
-            self.element_room_map[el.Id.IntegerValue] = room_item
-            matched_elements.append(el)
-            room_hit_count[(room_item["link_id"], room_item["room_id"])] += 1
-
-        self.selected_elements = matched_elements
-        self._set_element_summary()
-
-        if not matched_elements:
-            self._reset_selected_room()
-            self._refresh_target_parameters()
-            forms.alert(
-                "Auto-detect did not find category elements inside linked room footprints. "
-                "Tip: verify categories, selected scope, and linked room boundaries."
-            )
-            return
-
-        top_key = None
-        top_count = 0
-        for key, count in room_hit_count.items():
-            if count > top_count:
-                top_count = count
-                top_key = key
-
-        if top_key is not None:
-            for item in self.room_detection_index:
-                if (item["link_id"], item["room_id"]) == top_key:
-                    self.selected_room = item["room"]
-                    self.selected_room_doc = item["link_doc"]
-                    self.selected_room_link_inst = item["link_inst"]
-                    self.txtRoomInfo.Text = self._room_header_text(
-                        item["room"], item["link_doc"], item["link_inst"]
+            candidates = self._iter_selected_category_elements(scope_mode)
+            if not candidates:
+                forms.alert(
+                    "No elements found in {0} for selected categories.".format(
+                        "entire project" if scope_mode == "Entire Project" else "active view level"
                     )
-                    self.pnlRoomInfo.Visibility = System.Windows.Visibility.Visible
-                    break
+                )
+                return
 
-        self._extract_room_parameters()
-        self._refresh_target_parameters()
+            self._build_room_detection_index(scope_mode)
+            if not self.room_detection_index:
+                forms.alert(
+                    "No linked rooms were indexed for {0}.\n"
+                    "Tip: try 'Entire Project' scope in Step 2B, or use Step 1 Detect Rooms to confirm links contain rooms."
+                    .format("entire project" if scope_mode == "Entire Project" else "active view level")
+                )
+                return
+
+            self.element_room_map = {}
+            matched_elements = []
+            room_hit_count = defaultdict(int)
+
+            for el in candidates:
+                pt = self._get_element_probe_point(el)
+                room_item = self._find_linked_room_for_host_point(pt)
+                if room_item is None:
+                    continue
+
+                self.element_room_map[el.Id.IntegerValue] = room_item
+                matched_elements.append(el)
+                room_hit_count[(room_item["link_id"], room_item["room_id"])] += 1
+
+            self.selected_elements = matched_elements
+            self._set_element_summary()
+
+            if not matched_elements:
+                self._reset_selected_room()
+                self._refresh_target_parameters()
+                forms.alert(
+                    "Auto-detect did not find category elements inside linked room footprints. "
+                    "Tip: verify categories, selected scope, and linked room boundaries."
+                )
+                return
+
+            top_key = None
+            top_count = 0
+            for key, count in room_hit_count.items():
+                if count > top_count:
+                    top_count = count
+                    top_key = key
+
+            if top_key is not None:
+                for item in self.room_detection_index:
+                    if (item["link_id"], item["room_id"]) == top_key:
+                        self.selected_room = item["room"]
+                        self.selected_room_doc = item["link_doc"]
+                        self.selected_room_link_inst = item["link_inst"]
+                        self.txtRoomInfo.Text = self._room_header_text(
+                            item["room"], item["link_doc"], item["link_inst"]
+                        )
+                        self.pnlRoomInfo.Visibility = System.Windows.Visibility.Visible
+                        break
+
+            self._extract_room_parameters()
+            self._refresh_target_parameters()
+        except Exception as ex:
+            logger.exception("Auto-detect elements failed")
+            forms.alert("Auto-detect failed safely:\n{0}".format(str(ex)))
 
     def _get_selected_link(self):
         """Get selected linked model; return None when using all links."""
@@ -1289,6 +1455,16 @@ class LinkedRoomTransferWindow(WPFWindow):
             forms.alert("No smart mappings found. Adjust categories/selection and refresh.")
             return
 
+        # Safety check: warn if processing many elements
+        if len(self.selected_elements) > 1000:
+            warning = (
+                "Processing {0} elements.\n\n"
+                "This may take a while or cause performance issues.\n"
+                "Continue?"
+            ).format(len(self.selected_elements))
+            if not self._confirm(warning, title="Large Transfer Warning"):
+                return
+
         # Safety: prevent multiple room params targeting the same destination param.
         by_target = defaultdict(list)
         for room_pname, target_pname in self.mapping.items():
@@ -1461,4 +1637,5 @@ class LinkedRoomTransferWindow(WPFWindow):
 
 
 ui = LinkedRoomTransferWindow("WPFWindow.xaml")
-ui.ShowDialog()
+if getattr(ui, "links", None):
+    ui.ShowDialog()
