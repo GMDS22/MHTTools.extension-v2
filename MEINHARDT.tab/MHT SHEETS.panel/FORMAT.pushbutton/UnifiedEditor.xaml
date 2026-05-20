@@ -430,8 +430,8 @@
 
                         <Separator DockPanel.Dock="Top" Margin="0,10,0,6"/>
 
-                        <TextBlock DockPanel.Dock="Top"
-                                   Text="AUTO REVISION"
+                                                <TextBlock DockPanel.Dock="Top"
+                                                                     Text="REVISION UPDATE"
                                    Foreground="{StaticResource text_cyan}"
                                    FontWeight="Bold" FontSize="10"
                                    Margin="0,0,0,4"/>
@@ -440,27 +440,34 @@
                                  x:Name="UI_rev_description"
                                  Height="26"
                                  Text=""
-                                 ToolTip="Global revision description for selected sheets."
+                                                                 ToolTip="Optional description override for the selected project revision. Leave blank to keep the existing revision description."
                                  Margin="0,0,0,4"/>
 
                         <TextBox DockPanel.Dock="Top"
                                  x:Name="UI_rev_date"
                                  Height="26"
                                  Text=""
-                                 ToolTip="Revision date text, e.g. 25.03.26"
+                                                                 ToolTip="Optional revision date override for the selected project revision. Leave blank to keep the existing revision date."
+                                 Margin="0,0,0,4"/>
+
+                        <TextBox DockPanel.Dock="Top"
+                                 x:Name="UI_rev_revised_by"
+                                 Height="26"
+                                 Text=""
+                                                                 ToolTip="Optional Revised By value. Writes the standard Revit revision Issued By field shown in revision tables."
                                  Margin="0,0,0,4"/>
 
                         <ComboBox DockPanel.Dock="Top"
                                   x:Name="UI_rev_mode"
                                   Height="26"
                                   Margin="0,0,0,6"
-                                  ToolTip="Choose whether to generate next interim revision or next formal submission revision."/>
+                                                                    ToolTip="Select an existing project revision to assign to the selected sheets."/>
 
                         <Button DockPanel.Dock="Top"
                                 x:Name="UI_btn_auto_revision"
-                                Content="Auto Revision Update"
+                            Content="Auto Update Revision"
                                 Height="28"
-                                ToolTip="Create or reuse next revision and add it only to selected sheets."
+                                                                ToolTip="Assign the selected existing revision to the selected sheets and optionally update its visible fields."
                                 Click="button_auto_revision_update"/>
 
                         <Separator DockPanel.Dock="Top" Margin="0,10,0,6"/>

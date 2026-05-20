@@ -60,7 +60,7 @@ from System import Uri
 PATH_SCRIPT = os.path.dirname(__file__)
 uidoc       = __revit__.ActiveUIDocument
 app         = __revit__.Application
-doc         = __revit__.ActiveUIDocument.Document
+doc         = uidoc.Document if uidoc else None
 exit = False
 
 
@@ -81,7 +81,7 @@ def exitscript():
 def rename_sheet(sheet, sheet_name, sheet_number):
     """Renames a ViewSheet with the specified SheetName and SheetNumber avoiding duplicates."""
     # Clear forbidden symbols
-    forbidden_symbols = "\:{}[]|;<>?`~"
+    forbidden_symbols = "\\:{}[]|;<>?`~"
     sheet_name   = ''.join(c for c in sheet_name if c not in forbidden_symbols)
     sheet_number = ''.join(c for c in sheet_number if c not in forbidden_symbols)
 
@@ -1751,6 +1751,9 @@ class MHT_SheetGenerator(Window):
 from pyrevit import script
 output = script.get_output()
 
+if not doc:
+    forms.alert("Open a Revit document first.", title="MHT Sheet Generator", exitscript=True)
+
 #👀 Show form to the user
 try:
     UI           = MHT_SheetGenerator()
@@ -1763,8 +1766,12 @@ try:
     generated_views_by_sheet_number = UI.generated_views_by_sheet_number
 except SystemExit:
     exit = True
-except:
-    exitscript()
+except Exception as ex:
+    forms.alert(
+        "MHT Sheet Generator could not be opened and was safely stopped.\n\n{}".format(ex),
+        title="MHT Sheet Generator"
+    )
+    exit = True
 
 if exit:
     import sys

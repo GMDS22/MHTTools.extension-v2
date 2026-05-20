@@ -1,0 +1,9 @@
+title:
+  en_us: Renumber by Spline
+tooltip:
+  en_us: |
+    Sort selected elements along a picked spline or curve and renumber them with
+    fixed-width leading zeros, previewing the result before applying it to a text parameter.
+author: GM
+engine:
+  ironpython: true

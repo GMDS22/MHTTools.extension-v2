@@ -1,0 +1,10 @@
+title:
+  en_us: Linked Elements Parameter
+tooltip:
+  en_us: |
+    Select a linked source element type, pick a source element from linked models,
+    and transfer matching parameter values into selected host model elements.
+    
+author: GM
+engine:
+  persistent: true

@@ -305,6 +305,8 @@ class DuctulatorWindow(forms.WPFWindow):
         # Leave InpDuctLength blank when zero so the placeholder hint shows.
         if duct_length_mm > 0:
             self.InpDuctLength.Text = '{0:g}'.format(duct_length_mm)
+        else:
+            self.InpDuctLength.Text = ''
 
         self._set_summary_text(airflow_lps, velocity_mps, width_mm, duct_length_mm)
         self._set_round_table(airflow_lps)
@@ -357,17 +359,34 @@ class DuctulatorWindow(forms.WPFWindow):
 def main():
     global _DUCTULATOR_WINDOW
     xaml_path = script.get_bundle_file('Ductulator.xaml')
-    if _DUCTULATOR_WINDOW is not None:
+    if not xaml_path:
+        forms.alert(
+            'Ductulator UI file was not found. The tool was safely stopped before opening.',
+            title='MHT Ductolator by GM'
+        )
+        return
+
+    existing_window = _DUCTULATOR_WINDOW
+    _DUCTULATOR_WINDOW = None
+    if existing_window is not None:
         try:
-            _DUCTULATOR_WINDOW.Close()
+            existing_window.Close()
         except Exception:
             pass
-    _DUCTULATOR_WINDOW = DuctulatorWindow(xaml_path)
-    _DUCTULATOR_WINDOW.Show()
+
     try:
-        _DUCTULATOR_WINDOW.Activate()
-    except Exception:
-        pass
+        _DUCTULATOR_WINDOW = DuctulatorWindow(xaml_path)
+        _DUCTULATOR_WINDOW.Show()
+        try:
+            _DUCTULATOR_WINDOW.Activate()
+        except Exception:
+            pass
+    except Exception as ex:
+        _DUCTULATOR_WINDOW = None
+        forms.alert(
+            'Ductulator could not be opened and was safely stopped.\n\n{0}'.format(str(ex)),
+            title='MHT Ductolator by GM'
+        )
 
 
 if __name__ == '__main__':

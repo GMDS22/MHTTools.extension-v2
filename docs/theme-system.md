@@ -1,0 +1,74 @@
+# Meinhardt UI Theme System
+
+This document is the single source of truth for UI theme tokens and usage rules across tools under MEINHARDT.tab.
+
+## Goals
+
+- Keep all tool interfaces visually consistent.
+- Improve visual quality and readability.
+- Allow fast global theme updates by changing tokens in one place.
+
+## Core 3-Role Palette
+
+### 1. Primary (Blue)
+
+- Purpose: identity, primary actions, key emphasis.
+- Base token: `--theme-primary: #0E639C`
+- Hover token: `--theme-primary-hover: #1177BB`
+
+### 2. Secondary (Teal)
+
+- Purpose: supportive highlights, secondary action states, contextual chips.
+- Base token: `--theme-secondary: #1FA6A6`
+- Hover token: `--theme-secondary-hover: #22B8B8`
+
+### 3. Accent (Amber)
+
+- Purpose: attention and semantic highlight (warnings, notable states, selected key indicators).
+- Base token: `--theme-accent: #F2B134`
+- Strong token: `--theme-accent-strong: #D99A20`
+
+## Neutral Support Tokens
+
+- `--surface-0: #1A1A1C`
+- `--surface-1: #232327`
+- `--surface-2: #2A2A2E`
+- `--border: #3A3A40`
+- `--text-main: #E8E8E8`
+- `--text-muted: #8A8A9A`
+- `--success: #4CAF7D`
+- `--danger: #CC4B4B`
+
+## Usage Rules
+
+1. Use Primary Blue for primary buttons, step badges, and major anchors.
+2. Use Secondary Teal for supporting emphasis, alternative actions, and non-critical highlights.
+3. Use Accent Amber for alerts, callouts, and high-attention visual markers.
+4. Keep core identity to the 3-role palette; do not introduce additional identity colors unless explicitly approved.
+5. Preserve contrast and readability on dark surfaces.
+
+## Component Guidance
+
+- Buttons:
+  - Primary action: blue background, white text.
+  - Secondary action: neutral surface with teal border or subtle teal emphasis.
+  - Critical warning action: amber accent treatment.
+- Cards/Sections:
+  - Use consistent surface layering (`surface-1` and `surface-2`) and border token.
+- Typography:
+  - Keep body text in `text-main`; supporting hints in `text-muted`.
+- Lists/Tables:
+  - Keep alternating row contrast subtle and consistent.
+
+## Migration Checklist
+
+1. Update tokens here first.
+2. Propagate token usage to XAML resource dictionaries/styles.
+3. Remove one-off hardcoded colors where practical.
+4. Verify labels/tooltips remain clear and consistent.
+5. Run visual QA pass for consistency and contrast.
+
+## Change Log
+
+- 2026-05-20: Initial single-source theme system created (Blue primary, Teal secondary, Amber accent).
+- 2026-05-20: First rollout pass applied to MEP Data.panel XAML dialogs for consistent dark surfaces and blue/teal action styling.

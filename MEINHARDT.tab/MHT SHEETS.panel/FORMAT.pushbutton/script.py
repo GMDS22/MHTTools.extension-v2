@@ -627,6 +627,47 @@ def _set_selection(element_ids):
     uidoc.Selection.SetElementIds(List[ElementId](element_ids))
 
 
+def _get_selectable_element_ids(elements):
+    if not uidoc:
+        return []
+
+    try:
+        active_view = uidoc.ActiveView
+        active_view_id = active_view.Id.IntegerValue if active_view and active_view.Id else None
+    except Exception:
+        active_view_id = None
+
+    selectable_ids = []
+    for elem in elements or []:
+        if elem is None:
+            continue
+
+        try:
+            elem_id = elem.Id
+        except Exception:
+            continue
+        if elem_id is None:
+            continue
+
+        try:
+            owner_view_id = elem.OwnerViewId
+        except Exception:
+            owner_view_id = None
+
+        if owner_view_id is None or owner_view_id == ElementId.InvalidElementId:
+            selectable_ids.append(elem_id)
+            continue
+
+        try:
+            owner_view_value = owner_view_id.IntegerValue
+        except Exception:
+            owner_view_value = None
+        if owner_view_value is not None and owner_view_value == active_view_id:
+            selectable_ids.append(elem_id)
+
+    return selectable_ids
+
+
 # ─────────────────────────────────────────────────────────────────────────────
 #  UNIFIED FORMAT WINDOW  (v2 single-window, 3-panel layout)
 # ─────────────────────────────────────────────────────────────────────────────
@@ -666,6 +707,7 @@ class FORMATWindowV2(forms.WPFWindow):
         self._pending_selection_refresh = False
         self._last_applied_search_text = None
         self._tb_type_map              = {}
+        self._revision_option_map      = {}
         self._panel_ratio              = (1.1, 1.8, 1.1)
         self._is_custom_maximized      = False
         self._restore_bounds           = None
@@ -759,16 +801,117 @@ class FORMATWindowV2(forms.WPFWindow):
         self._is_custom_maximized = False
         self._restore_window_bounds()
 
+    def _format_revision_option_label(self, revision):
+        try:
+            revision_number = (revision.RevisionNumber or '').strip()
+        except Exception:
+            revision_number = ''
+        try:
+            description = (revision.Description or '').strip()
+        except Exception:
+            description = ''
+        try:
+            revision_date = (revision.RevisionDate or '').strip()
+        except Exception:
+            revision_date = ''
+        try:
+            sequence_number = int(revision.SequenceNumber)
+        except Exception:
+            sequence_number = -1
+
+        if not revision_number:
+            revision_number = 'Seq {}'.format(sequence_number if sequence_number >= 0 else '?')
+        if not description:
+            description = '<no description>'
+        if not revision_date:
+            revision_date = '<no date>'
+
+        base_label = '{} | {} | {}'.format(revision_number, description, revision_date)
+        label = base_label
+        idx = 2
+        while label in self._revision_option_map:
+            label = '{} ({})'.format(base_label, idx)
+            idx += 1
+        return label
+
+    def _refresh_revision_options(self):
+        selected_label = None
+        try:
+            selected_label = self.UI_rev_mode.SelectedItem
+        except Exception:
+            selected_label = None
+
+        self._revision_option_map = {}
+        revisions = []
+        for rid in Revision.GetAllRevisionIds(doc):
+            revision = doc.GetElement(rid)
+            if revision is None:
+                continue
+            revisions.append(revision)
+
+        def _revision_sort_key(revision):
+            try:
+                return int(revision.SequenceNumber)
+            except Exception:
+                return -1
+
+        revisions.sort(key=_revision_sort_key, reverse=True)
+        labels = []
+        for revision in revisions:
+            label = self._format_revision_option_label(revision)
+            self._revision_option_map[label] = revision.Id
+            labels.append(label)
+
+        try:
+            self.UI_rev_mode.ItemsSource = labels
+            if selected_label in self._revision_option_map:
+                self.UI_rev_mode.SelectedItem = selected_label
+            elif labels:
+                self.UI_rev_mode.SelectedIndex = 0
+        except Exception:
+            pass
+
+    def _update_revision_metadata(self, revision, description, revision_date, revised_by):
+        updated_fields = []
+        skipped_fields = []
+
+        if revision is None:
+            return updated_fields, skipped_fields
+
+        if revision.Issued:
+            if description:
+                skipped_fields.append('Description')
+            if revision_date:
+                skipped_fields.append('Date')
+            if revised_by:
+                skipped_fields.append('Revised By')
+            return updated_fields, skipped_fields
+
+        if description:
+            try:
+                revision.Description = description
+                updated_fields.append('Description')
+            except Exception:
+                skipped_fields.append('Description')
+        if revision_date:
+            try:
+                revision.RevisionDate = revision_date
+                updated_fields.append('Date')
+            except Exception:
+                skipped_fields.append('Date')
+        if revised_by:
+            try:
+                revision.IssuedBy = revised_by
+                updated_fields.append('Revised By')
+            except Exception:
+                skipped_fields.append('Revised By')
+
+        return updated_fields, skipped_fields
+
     def _init_revision_ui(self):
         try:
             if getattr(self, 'UI_rev_mode', None):
-                self.UI_rev_mode.ItemsSource = [
-                    'Next Interim Revision',
-                    'Next Formal Submission',
-                ]
-                self.UI_rev_mode.SelectedIndex = 0
-            if getattr(self, 'UI_rev_date', None) and not self.UI_rev_date.Text:
-                self.UI_rev_date.Text = datetime.datetime.now().strftime('%d.%m.%y')
+                self._refresh_revision_options()
         except Exception:
             pass
 
@@ -1460,6 +1603,9 @@ class FORMATWindowV2(forms.WPFWindow):
     def _format_revision_code(self, letter_code, number_code):
         return '{}.{:02d}'.format(letter_code, int(number_code))
 
+    def _normalize_revision_code(self, revision_code):
+        return (revision_code or '').strip().upper()
+
     def _next_revision_code(self, current_code, mode_name):
         parsed = self._parse_revision_code(current_code)
         if not parsed:
@@ -1513,38 +1659,77 @@ class FORMATWindowV2(forms.WPFWindow):
         return best_code
 
     def _find_revision_by_code(self, revision_code):
+        revision_code = self._normalize_revision_code(revision_code)
+        if not revision_code:
+            return None
         for rid in Revision.GetAllRevisionIds(doc):
             rev = doc.GetElement(rid)
             if rev is None:
                 continue
             try:
-                if (rev.RevisionNumber or '').strip().upper() == revision_code.upper():
+                if self._normalize_revision_code(rev.RevisionNumber) == revision_code:
                     return rev
             except Exception:
                 continue
         return None
 
-    def _get_or_create_revision(self, revision_code, description, revision_date):
-        rev = self._find_revision_by_code(revision_code)
+    def _build_revision_code_cache(self):
+        cache = {}
+        for rid in Revision.GetAllRevisionIds(doc):
+            rev = doc.GetElement(rid)
+            if rev is None:
+                continue
+            try:
+                code = self._normalize_revision_code(rev.RevisionNumber)
+            except Exception:
+                code = ''
+            if code and code not in cache:
+                cache[code] = rev
+        return cache
+
+    def _get_or_create_revision(self, revision_code, description, revision_date, revised_by, revision_cache=None):
+        normalized_code = self._normalize_revision_code(revision_code)
+        rev = None
+        if revision_cache is not None:
+            rev = revision_cache.get(normalized_code)
+        if rev is None:
+            rev = self._find_revision_by_code(normalized_code)
+            if revision_cache is not None and rev is not None:
+                revision_cache[normalized_code] = rev
         created = False
         if rev is None:
             rev = Revision.Create(doc)
             created = True
+            if revision_cache is not None and normalized_code:
+                revision_cache[normalized_code] = rev
+            try:
+                doc.Regenerate()
+            except Exception:
+                pass
 
-        try:
-            rev.NumberType = RevisionNumberType.Alphanumeric
-        except Exception:
-            pass
+        if created:
+            try:
+                rev.NumberType = RevisionNumberType.Alphanumeric
+            except Exception:
+                pass
 
-        try:
-            rev.RevisionNumber = revision_code
-        except Exception:
-            pass
+            try:
+                rev.RevisionNumber = revision_code
+            except Exception:
+                pass
 
         try:
             if created or not rev.Issued:
                 rev.Description = description
                 rev.RevisionDate = revision_date
+                if revised_by:
+                    rev.IssuedBy = revised_by
+        except Exception:
+            pass
+
+        try:
+            if created:
+                doc.Regenerate()
         except Exception:
             pass
 
@@ -1553,7 +1738,7 @@ class FORMATWindowV2(forms.WPFWindow):
     def _add_revision_to_sheet_if_missing(self, sheet, revision_id):
         try:
             current = sheet.GetAdditionalRevisionIds()
-            for rid in current:
+            for rid in self._get_sheet_revision_ids(sheet):
                 if rid.IntegerValue == revision_id.IntegerValue:
                     return False
             current.Add(revision_id)
@@ -2208,9 +2393,19 @@ class FORMATWindowV2(forms.WPFWindow):
             forms.alert('Select at least one sheet first.', title=__title__)
             return
 
+        selected_label = None
         description = ''
         revision_date = ''
-        mode_name = 'Next Interim Revision'
+        revised_by = ''
+        revision = None
+        revision_id = None
+        updated_fields = []
+        skipped_fields = []
+
+        try:
+            selected_label = self.UI_rev_mode.SelectedItem
+        except Exception:
+            selected_label = None
         try:
             description = (self.UI_rev_description.Text or '').strip()
         except Exception:
@@ -2220,30 +2415,37 @@ class FORMATWindowV2(forms.WPFWindow):
         except Exception:
             revision_date = ''
         try:
-            mode_name = str(self.UI_rev_mode.SelectedItem or mode_name)
+            revised_by = (self.UI_rev_revised_by.Text or '').strip()
         except Exception:
-            pass
+            revised_by = ''
 
-        if not description:
-            forms.alert('Enter a revision description first.', title=__title__)
-            return
-        if not revision_date:
-            forms.alert('Enter a revision date first.', title=__title__)
+        if not selected_label:
+            forms.alert('Select an existing revision first.', title=__title__)
             return
 
-        created_count = 0
+        revision_id = self._revision_option_map.get(str(selected_label))
+        if revision_id is None:
+            forms.alert('The selected revision could not be resolved. Refresh the tool and try again.', title=__title__)
+            return
+
+        revision = doc.GetElement(revision_id)
+        if revision is None:
+            forms.alert('The selected revision no longer exists in the project.', title=__title__)
+            return
+
         added_count = 0
         skipped_count = 0
 
         tx = Transaction(doc, 'FORMAT: Auto Revision Update')
         tx.Start()
         try:
+            updated_fields, skipped_fields = self._update_revision_metadata(
+                revision,
+                description,
+                revision_date,
+                revised_by,
+            )
             for sheet in sheets:
-                current_code = self._get_latest_revision_code_on_sheet(sheet)
-                next_code = self._next_revision_code(current_code, mode_name)
-                revision, created = self._get_or_create_revision(next_code, description, revision_date)
-                if created:
-                    created_count += 1
                 if self._add_revision_to_sheet_if_missing(sheet, revision.Id):
                     added_count += 1
                 else:
@@ -2254,8 +2456,14 @@ class FORMATWindowV2(forms.WPFWindow):
             forms.alert('Auto Revision Update failed: {}'.format(ex), title=__title__)
             return
 
-        msg = 'Auto Revision Update complete. Sheets updated: {} | Revisions created: {} | Already assigned: {}'.format(
-            added_count, created_count, skipped_count)
+        self._refresh_revision_options()
+
+        msg = 'Manual Revision Update complete. Sheets updated: {} | Already assigned/current: {}'.format(
+            added_count, skipped_count)
+        if updated_fields:
+            msg += ' | Fields updated: {}'.format(', '.join(updated_fields))
+        if skipped_fields:
+            msg += ' | Fields skipped: {}'.format(', '.join(skipped_fields))
         self.UI_feedback.Text = msg
         self._set_status(msg)
 
@@ -2615,7 +2823,12 @@ class FORMATWindowV2(forms.WPFWindow):
         try:
             allowed_ids = set(elem.Id.IntegerValue for elem in self._targets)
             success, errors = _apply_parameter_value(item, new_value, allowed_element_ids=allowed_ids)
-            _set_selection([elem.Id for elem in self._targets])
+            selection_ids = _get_selectable_element_ids(self._targets)
+            if selection_ids:
+                try:
+                    _set_selection(selection_ids)
+                except Exception:
+                    pass
             self._refresh_targets_and_params()
             for p in self._param_items:
                 if p.key == item.key:
@@ -2624,6 +2837,8 @@ class FORMATWindowV2(forms.WPFWindow):
             msg = "Applied '{}' to {} element(s).".format(item.name, success)
             if errors:
                 msg += " ({} error(s))".format(errors)
+            if not selection_ids and self._target_type != self._TARGET_SHEET:
+                msg += " Selection skipped for elements outside the active view."
             self.UI_feedback.Text    = msg
             self.UI_status_bar.Text  = msg
         except Exception as ex:
@@ -2638,5 +2853,12 @@ if __name__ == '__main__':
     if not doc:
         forms.alert("Open a Revit document first.", exitscript=True)
 
-    form = FORMATWindowV2("UnifiedEditor.xaml")
-    form.ShowDialog()
+    xaml_path = script.get_bundle_file("UnifiedEditor.xaml")
+    if not xaml_path:
+        forms.alert("FORMAT UI file was not found. The tool was safely stopped before opening.", title=__title__, exitscript=True)
+
+    try:
+        form = FORMATWindowV2("UnifiedEditor.xaml")
+        form.ShowDialog()
+    except Exception as ex:
+        forms.alert("FORMAT could not be opened and was safely stopped.\n\n{}".format(ex), title=__title__, exitscript=True)

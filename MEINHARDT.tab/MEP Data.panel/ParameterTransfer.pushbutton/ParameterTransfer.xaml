@@ -2,7 +2,49 @@
         xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
         Title="Parameter Transfer" Width="520" Height="380"
         WindowStartupLocation="CenterScreen" ResizeMode="CanResize"
-        ShowInTaskbar="True" Topmost="False">
+        ShowInTaskbar="True" Topmost="False"
+        Background="#1A1A1C" Foreground="#E8E8E8">
+    <Window.Resources>
+        <SolidColorBrush x:Key="PrimaryBrush" Color="#0E639C"/>
+        <SolidColorBrush x:Key="PrimaryHoverBrush" Color="#1177BB"/>
+        <SolidColorBrush x:Key="SecondaryBrush" Color="#1FA6A6"/>
+        <SolidColorBrush x:Key="SecondaryHoverBrush" Color="#22B8B8"/>
+        <SolidColorBrush x:Key="BorderBrush" Color="#3A3A40"/>
+        <SolidColorBrush x:Key="InputBrush" Color="#1E1E22"/>
+
+        <Style TargetType="TextBlock">
+            <Setter Property="Foreground" Value="#E8E8E8"/>
+        </Style>
+        <Style TargetType="ComboBox">
+            <Setter Property="Background" Value="{StaticResource InputBrush}"/>
+            <Setter Property="Foreground" Value="#E8E8E8"/>
+            <Setter Property="BorderBrush" Value="{StaticResource BorderBrush}"/>
+            <Setter Property="BorderThickness" Value="1"/>
+            <Setter Property="Padding" Value="6,4"/>
+        </Style>
+        <Style TargetType="TextBox">
+            <Setter Property="Background" Value="{StaticResource InputBrush}"/>
+            <Setter Property="Foreground" Value="#E8E8E8"/>
+            <Setter Property="BorderBrush" Value="{StaticResource BorderBrush}"/>
+            <Setter Property="BorderThickness" Value="1"/>
+            <Setter Property="Padding" Value="6,4"/>
+        </Style>
+        <Style TargetType="CheckBox">
+            <Setter Property="Foreground" Value="#E8E8E8"/>
+        </Style>
+        <Style TargetType="Button">
+            <Setter Property="Padding" Value="10,4"/>
+            <Setter Property="Background" Value="{StaticResource PrimaryBrush}"/>
+            <Setter Property="Foreground" Value="#FFFFFF"/>
+            <Setter Property="BorderBrush" Value="{StaticResource PrimaryHoverBrush}"/>
+            <Setter Property="BorderThickness" Value="1"/>
+            <Setter Property="FontWeight" Value="SemiBold"/>
+        </Style>
+        <Style x:Key="SecondaryButton" TargetType="Button" BasedOn="{StaticResource {x:Type Button}}">
+            <Setter Property="Background" Value="{StaticResource SecondaryBrush}"/>
+            <Setter Property="BorderBrush" Value="{StaticResource SecondaryHoverBrush}"/>
+        </Style>
+    </Window.Resources>
     <Grid Margin="14">
         <Grid.RowDefinitions>
             <RowDefinition Height="Auto"/>
@@ -40,13 +82,13 @@
                 <TextBox x:Name="new_param_name" Width="340" Height="24" Margin="0,0,8,0"
                          VerticalContentAlignment="Center"
                          ToolTip="New project parameter name"/>
-                <Button x:Name="create_param_btn" Width="110" Height="24" Content="Create" Click="create_param_click"/>
+                <Button x:Name="create_param_btn" Width="110" Height="24" Content="Create" Click="create_param_click" Style="{StaticResource SecondaryButton}"/>
             </DockPanel>
         </StackPanel>
 
         <StackPanel Grid.Row="7" Orientation="Horizontal" HorizontalAlignment="Right" Margin="0,12,0,0">
             <Button Width="90" Height="28" Margin="0,0,8,0" Content="Apply" IsDefault="True" Click="apply_click"/>
-            <Button Width="90" Height="28" Content="Cancel" IsCancel="True" Click="cancel_click"/>
+            <Button Width="90" Height="28" Content="Cancel" IsCancel="True" Click="cancel_click" Style="{StaticResource SecondaryButton}"/>
         </StackPanel>
     </Grid>
 </Window>

@@ -1,6 +1,6 @@
 <Window xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
         xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
-        Title="Linked Room Parameter by GM"
+        Title="Linked Elements Parameter by GM"
         Height="820"
         Width="1100"
         MinWidth="900"
@@ -250,7 +250,7 @@
     <StackPanel Margin="14,12,14,14">
 
         <!-- ── HEADER ── -->
-        <TextBlock Text="Linked Room Parameter Transfer"
+        <TextBlock Text="Linked Elements Parameter Transfer"
                    FontSize="18" FontWeight="Bold" Foreground="#E8E8E8"
                    Margin="0,0,0,2"/>
         <TextBlock Style="{StaticResource Hint}"
@@ -258,7 +258,7 @@
                    Margin="0,0,0,10"/>
 
         <!-- ══════════════════════════════════════════════════════
-             STEP 1  –  Source Room
+             STEP 1  –  Source Linked Element
         ══════════════════════════════════════════════════════ -->
         <Border Style="{StaticResource SectionCard}">
             <DockPanel>
@@ -269,15 +269,17 @@
                     </Border>
                     <StackPanel VerticalAlignment="Center">
                         <TextBlock Style="{StaticResource StepTitle}"
-                                   Text="Select Source Room  (from a linked model)"/>
+                                   Text="Select Source Linked Element  (from a linked model)"/>
                         <TextBlock Style="{StaticResource Hint}"
-                                   Text="Choose a linked model, select a room detection mode, then pick or auto-detect the room."/>
+                                   Text="Choose a linked model and source element type, then detect or manually pick linked source elements."/>
                     </StackPanel>
                 </StackPanel>
 
-                <!-- Link selector and Room mode in a grid row -->
+                <!-- Link selector, source type, and detection mode -->
                 <Grid DockPanel.Dock="Top" Margin="0,0,0,12">
                     <Grid.ColumnDefinitions>
+                        <ColumnDefinition Width="*"/>
+                        <ColumnDefinition Width="12"/>
                         <ColumnDefinition Width="*"/>
                         <ColumnDefinition Width="12"/>
                         <ColumnDefinition Width="*"/>
@@ -304,17 +306,25 @@
                         </ComboBox>
                     </StackPanel>
 
-                    <!-- Room detection mode -->
+                    <!-- Source element type -->
                     <StackPanel Grid.Column="2">
-                        <TextBlock Style="{StaticResource ListLabel}" Text="Room Detection Mode:"/>
+                        <TextBlock Style="{StaticResource ListLabel}" Text="Source Element Type:"/>
+                        <ComboBox x:Name="cmbSourceElementType"
+                                  Height="26"
+                                  ToolTip="Select which linked element category to use as the source."/>
+                    </StackPanel>
+
+                    <!-- Detection mode -->
+                    <StackPanel Grid.Column="4">
+                        <TextBlock Style="{StaticResource ListLabel}" Text="Detection Mode:"/>
                         <ComboBox x:Name="cmbRoomDetectionMode"
                                   Height="26"
                                   SelectedIndex="0"
-                                  ToolTip="Choose how to select the source room.">
-                            <ComboBoxItem Content="Auto-Detect Rooms In Current View"/>
+                                  ToolTip="Choose how to detect linked source elements.">
+                            <ComboBoxItem Content="Auto-Detect Linked Elements In Current View"/>
                             <ComboBoxItem Content="Manual Pick (current view)"/>
                             <ComboBoxItem Content="Auto-Detect Per Level"/>
-                                <ComboBoxItem Content="Auto-Detect Entire Project (disabled)" IsEnabled="False" ToolTip="Entire project scope is temporarily disabled for stability. Use Active View Level or Per Level mode instead."/>
+                            <ComboBoxItem Content="Auto-Detect Entire Project (disabled)" IsEnabled="False" ToolTip="Entire project scope is temporarily disabled for stability. Use Active View Level or Per Level mode instead."/>
                             <ComboBox.ItemContainerStyle>
                                 <Style TargetType="ComboBoxItem" BasedOn="{StaticResource {x:Type ComboBoxItem}}">
                                     <Setter Property="Background" Value="#252528"/>
@@ -328,24 +338,24 @@
                 <!-- Action buttons -->
                 <StackPanel DockPanel.Dock="Top" Orientation="Horizontal">
                     <Button x:Name="btnDetectRooms"
-                        Content="Detect Rooms"
+                        Content="Detect Linked Elements"
                         Click="detect_rooms_click"
                         Style="{StaticResource PrimaryAction}"
                         Padding="20,7"
-                        Width="180" HorizontalAlignment="Left"
-                        ToolTip="Auto-detect rooms using the selected detection mode."/>
+                        Width="220" HorizontalAlignment="Left"
+                        ToolTip="Auto-detect linked source elements using the selected mode and source type."/>
                     <Button x:Name="btnPickRooms"
-                        Content="Pick Room(s) In Current View"
+                        Content="Pick Linked Element(s) In Current View"
                         Click="pick_linked_rooms_click"
                         Style="{StaticResource PrimaryAction}"
                         Padding="20,7"
-                        Width="220" HorizontalAlignment="Left"
-                        ToolTip="Manually pick one or more linked rooms visible in the current view."/>
+                        Width="280" HorizontalAlignment="Left"
+                        ToolTip="Manually pick one or more linked source elements visible in the current view."/>
                 </StackPanel>
             </DockPanel>
         </Border>
 
-        <!-- Room info card – hidden until room selected -->
+        <!-- Source info card – hidden until source selected -->
         <Border x:Name="pnlRoomInfo" Visibility="Collapsed"
                 Style="{StaticResource SectionCard}"
                 BorderBrush="#1D5A36" Background="#192920"
@@ -358,11 +368,11 @@
                 <Border Grid.Column="0" Width="6" Background="{StaticResource SuccessBrush}"
                         Margin="0,0,12,0"/>
                 <StackPanel Grid.Column="1">
-                    <TextBlock Text="Selected Room" Foreground="#8EE8A0"
+                    <TextBlock Text="Selected Source Element" Foreground="#8EE8A0"
                                FontWeight="SemiBold" FontSize="11" Margin="0,0,0,4"/>
                     <TextBlock x:Name="txtRoomInfo"
                                Style="{StaticResource InfoValue}"
-                               Text="No room selected."
+                               Text="No source element selected."
                                Foreground="#B8D8B8"/>
                 </StackPanel>
             </Grid>
@@ -389,7 +399,7 @@
                         <StackPanel VerticalAlignment="Center">
                             <TextBlock Style="{StaticResource StepTitle}" Text="Filter Element Types"/>
                             <TextBlock Style="{StaticResource Hint}"
-                                       Text="Tick the categories you want to assign room data to."/>
+                                       Text="Tick the categories you want to assign source element data to."/>
                         </StackPanel>
                     </StackPanel>
 
@@ -419,7 +429,7 @@
                         <StackPanel VerticalAlignment="Center">
                             <TextBlock Style="{StaticResource StepTitle}" Text="Select Target Elements"/>
                             <TextBlock Style="{StaticResource Hint}"
-                                       Text="Choose elements in the host model that will receive the room data."/>
+                                       Text="Choose elements in the host model that will receive the source data."/>
                         </StackPanel>
                     </StackPanel>
 
@@ -433,7 +443,7 @@
                                 ToolTip="Interactively click elements in the view to select them"/>
                         <Button Content="Auto Detect"
                             Click="auto_detect_elements_click"
-                            ToolTip="Automatically collect selected-category elements and match each element to a linked room footprint in the current view."/>
+                            ToolTip="Automatically collect selected-category elements and match each one to linked room footprints (Rooms source type only)."/>
                     </StackPanel>
 
                     <!-- element summary -->
@@ -462,7 +472,7 @@
                         <CheckBox x:Name="chkAutoRoomByElement"
                                   Content="Fully automate: auto-detect room for each element"
                                   IsChecked="True"
-                                  ToolTip="When enabled, transfer uses the linked room detected per element (recommended for ceiling lights/equipment not fully inside room volume)."
+                                  ToolTip="When enabled, transfer uses the linked room detected per element (available only when Source Element Type is Rooms)."
                                   Margin="0,0,0,4"/>
                         <CheckBox x:Name="chkShowNonCommon"
                                   Content="Show non-common parameters (union mode)"
@@ -492,7 +502,7 @@
                     </StackPanel>
                 </StackPanel>
 
-                <!-- three columns: room params | target params | mapping list -->
+                <!-- three columns: source params | target params | mapping list -->
                 <Grid DockPanel.Dock="Top">
                     <Grid.ColumnDefinitions>
                         <ColumnDefinition Width="*"/>
@@ -502,10 +512,10 @@
                         <ColumnDefinition Width="*"/>
                     </Grid.ColumnDefinitions>
 
-                    <!-- Room params -->
+                    <!-- Source params -->
                     <DockPanel Grid.Column="0">
                         <TextBlock DockPanel.Dock="Top" Style="{StaticResource ListLabel}"
-                                   Text="Room Parameters  (source values)"/>
+                                   Text="Source Parameters  (source values)"/>
                         <CheckBox x:Name="chkShowEmpty" DockPanel.Dock="Top"
                                   Content="Show empty parameters"
                                   Checked="refresh_click" Unchecked="refresh_click"
@@ -530,7 +540,7 @@
                     <!-- Mapping list + controls -->
                     <DockPanel Grid.Column="4">
                         <TextBlock DockPanel.Dock="Top" Style="{StaticResource ListLabel}"
-                                   Text="Active Mappings  (room param → target param)"/>
+                                   Text="Active Mappings  (source param → target param)"/>
 
                         <!-- manual override row -->
                         <Grid DockPanel.Dock="Top" Margin="0,0,0,4">
@@ -541,7 +551,7 @@
                             <ComboBox x:Name="cmbMappingRoom"   Grid.Column="0"
                                       Background="#1E1E22"
                                       Foreground="#E8E8E8"
-                                      ToolTip="Room parameter to map FROM">
+                                      ToolTip="Source parameter to map FROM">
                                 <ComboBox.ItemTemplate>
                                     <DataTemplate>
                                         <TextBlock Text="{Binding}" Foreground="#E8E8E8"/>
@@ -624,7 +634,7 @@
                                Margin="0,0,16,0"/>
                     <CheckBox x:Name="chkSkipEmpty" Content="Skip empty values"
                               IsChecked="True"
-                              ToolTip="When ticked, room parameters with no value will not overwrite existing data."/>
+                              ToolTip="When ticked, source parameters with no value will not overwrite existing data."/>
                     <TextBlock Text="If target already has value:" VerticalAlignment="Center"
                                Margin="16,0,8,0" Foreground="#B0B0B8"/>
                     <ComboBox x:Name="cmbDuplicateMode" Width="110" SelectedIndex="0">
@@ -636,11 +646,11 @@
 
                 <!-- action buttons -->
                 <StackPanel Grid.Column="2" Orientation="Horizontal" VerticalAlignment="Center">
-                    <Button Content="Refresh" Click="refresh_click" ToolTip="Re-read room parameters and re-run auto-match"/>
+                    <Button Content="Refresh" Click="refresh_click" ToolTip="Re-read source parameters and re-run auto-match"/>
                     <Button Content="✔  Transfer Parameters"
                             Click="transfer_click"
                             Style="{StaticResource AccentButton}"
-                            ToolTip="Write mapped room values to selected elements"/>
+                        ToolTip="Write mapped source values to selected elements"/>
                     <Button Content="Cancel" Click="cancel_click" Margin="0"/>
                 </StackPanel>
             </Grid>

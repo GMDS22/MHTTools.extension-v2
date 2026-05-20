@@ -1,0 +1,341 @@
+<Window xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+        xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+        Title="Renumber by Spline by GM"
+        Width="1200"
+        Height="780"
+        MinWidth="1000"
+        MinHeight="680"
+        WindowStartupLocation="CenterScreen"
+        ResizeMode="CanResizeWithGrip"
+        Background="#1A1A1C"
+        Foreground="#E8E8E8">
+
+    <Window.Resources>
+        <SolidColorBrush x:Key="PrimaryBrush" Color="#0E639C"/>
+        <SolidColorBrush x:Key="PrimaryHoverBrush" Color="#1177BB"/>
+        <SolidColorBrush x:Key="SecondaryBrush" Color="#1FA6A6"/>
+        <SolidColorBrush x:Key="SecondaryHoverBrush" Color="#22B8B8"/>
+        <SolidColorBrush x:Key="AccentBrush" Color="#F2B134"/>
+        <SolidColorBrush x:Key="SurfaceBrush" Color="#232327"/>
+        <SolidColorBrush x:Key="SurfaceAltBrush" Color="#2A2A2E"/>
+        <SolidColorBrush x:Key="BorderBrush" Color="#3A3A40"/>
+        <SolidColorBrush x:Key="TextMutedBrush" Color="#8A8A9A"/>
+
+        <Style TargetType="TextBlock">
+            <Setter Property="Foreground" Value="#E8E8E8"/>
+        </Style>
+
+        <Style TargetType="GroupBox">
+            <Setter Property="Margin" Value="0,0,0,12"/>
+            <Setter Property="Padding" Value="10"/>
+            <Setter Property="Background" Value="{StaticResource SurfaceBrush}"/>
+            <Setter Property="BorderBrush" Value="{StaticResource BorderBrush}"/>
+            <Setter Property="BorderThickness" Value="1"/>
+            <Setter Property="Foreground" Value="#E8E8E8"/>
+        </Style>
+
+        <Style TargetType="TextBox">
+            <Setter Property="Margin" Value="0,4,0,0"/>
+            <Setter Property="Padding" Value="8,5"/>
+            <Setter Property="Background" Value="#1E1E22"/>
+            <Setter Property="Foreground" Value="#E8E8E8"/>
+            <Setter Property="BorderBrush" Value="{StaticResource BorderBrush}"/>
+            <Setter Property="BorderThickness" Value="1"/>
+        </Style>
+
+        <ControlTemplate x:Key="DarkComboBoxToggleButton" TargetType="ToggleButton">
+            <Border x:Name="BtnBorder" Background="#2A2A2E" BorderBrush="{StaticResource BorderBrush}" BorderThickness="1">
+                <Grid>
+                    <Grid.ColumnDefinitions>
+                        <ColumnDefinition Width="*"/>
+                        <ColumnDefinition Width="22"/>
+                    </Grid.ColumnDefinitions>
+                    <Border Grid.Column="1" Background="#33333A" BorderBrush="{StaticResource BorderBrush}" BorderThickness="1,0,0,0"/>
+                    <Path Grid.Column="1" HorizontalAlignment="Center" VerticalAlignment="Center" Fill="#E8E8E8" Data="M 0 0 L 4 4 L 8 0 Z"/>
+                </Grid>
+            </Border>
+            <ControlTemplate.Triggers>
+                <Trigger Property="IsMouseOver" Value="True">
+                    <Setter TargetName="BtnBorder" Property="Background" Value="#303036"/>
+                </Trigger>
+                <Trigger Property="IsChecked" Value="True">
+                    <Setter TargetName="BtnBorder" Property="Background" Value="#303036"/>
+                </Trigger>
+                <Trigger Property="IsEnabled" Value="False">
+                    <Setter TargetName="BtnBorder" Property="Opacity" Value="0.65"/>
+                </Trigger>
+            </ControlTemplate.Triggers>
+        </ControlTemplate>
+
+        <Style TargetType="ComboBox">
+            <Setter Property="Margin" Value="0,4,0,0"/>
+            <Setter Property="Padding" Value="8,5"/>
+            <Setter Property="Background" Value="#2A2A2E"/>
+            <Setter Property="Foreground" Value="#E8E8E8"/>
+            <Setter Property="BorderBrush" Value="{StaticResource BorderBrush}"/>
+            <Setter Property="BorderThickness" Value="1"/>
+            <Setter Property="SnapsToDevicePixels" Value="True"/>
+            <Setter Property="Template">
+                <Setter.Value>
+                    <ControlTemplate TargetType="ComboBox">
+                        <Grid>
+                            <ToggleButton x:Name="ToggleButton" Focusable="False" ClickMode="Press"
+                                          IsChecked="{Binding Path=IsDropDownOpen, Mode=TwoWay, RelativeSource={RelativeSource TemplatedParent}}"
+                                          Template="{StaticResource DarkComboBoxToggleButton}"/>
+                            <ContentPresenter x:Name="ContentSite" IsHitTestVisible="False"
+                                              Margin="8,2,28,2" VerticalAlignment="Center" HorizontalAlignment="Left"
+                                              Content="{TemplateBinding SelectionBoxItem}"
+                                              ContentTemplate="{TemplateBinding SelectionBoxItemTemplate}"
+                                              ContentTemplateSelector="{TemplateBinding ItemTemplateSelector}">
+                                <ContentPresenter.Resources>
+                                    <Style TargetType="TextBlock">
+                                        <Setter Property="Foreground" Value="#E8E8E8"/>
+                                    </Style>
+                                </ContentPresenter.Resources>
+                            </ContentPresenter>
+                            <Popup x:Name="Popup" Placement="Bottom"
+                                   IsOpen="{TemplateBinding IsDropDownOpen}"
+                                   AllowsTransparency="True" Focusable="False" PopupAnimation="Slide">
+                                <Grid x:Name="DropDown" SnapsToDevicePixels="True"
+                                      MinWidth="{TemplateBinding ActualWidth}"
+                                      MaxHeight="{TemplateBinding MaxDropDownHeight}">
+                                    <Border x:Name="DropDownBorder" Background="#1E1E22" BorderBrush="{StaticResource BorderBrush}" BorderThickness="1"/>
+                                    <ScrollViewer Margin="2" SnapsToDevicePixels="True">
+                                        <StackPanel IsItemsHost="True" KeyboardNavigation.DirectionalNavigation="Contained"/>
+                                    </ScrollViewer>
+                                </Grid>
+                            </Popup>
+                        </Grid>
+                        <ControlTemplate.Triggers>
+                            <Trigger Property="HasItems" Value="False">
+                                <Setter TargetName="DropDownBorder" Property="MinHeight" Value="24"/>
+                            </Trigger>
+                            <Trigger Property="IsEnabled" Value="False">
+                                <Setter Property="Opacity" Value="0.65"/>
+                            </Trigger>
+                        </ControlTemplate.Triggers>
+                    </ControlTemplate>
+                </Setter.Value>
+            </Setter>
+        </Style>
+
+        <Style TargetType="ComboBoxItem">
+            <Setter Property="Background" Value="#252528"/>
+            <Setter Property="Foreground" Value="#E8E8E8"/>
+            <Setter Property="Padding"    Value="8,4"/>
+            <Style.Triggers>
+                <Trigger Property="IsHighlighted" Value="True">
+                    <Setter Property="Background" Value="#094771"/>
+                    <Setter Property="Foreground" Value="#FFFFFF"/>
+                </Trigger>
+                <Trigger Property="IsSelected" Value="True">
+                    <Setter Property="Background" Value="#0E639C"/>
+                    <Setter Property="Foreground" Value="#FFFFFF"/>
+                </Trigger>
+            </Style.Triggers>
+        </Style>
+
+        <Style TargetType="CheckBox">
+            <Setter Property="Margin" Value="0,8,0,0"/>
+            <Setter Property="Foreground" Value="#E8E8E8"/>
+            <Setter Property="Cursor" Value="Hand"/>
+        </Style>
+
+        <Style TargetType="Button">
+            <Setter Property="Margin" Value="0,4,0,0"/>
+            <Setter Property="Height" Value="30"/>
+            <Setter Property="Padding" Value="14,5"/>
+            <Setter Property="Background" Value="{StaticResource SecondaryBrush}"/>
+            <Setter Property="Foreground" Value="#FFFFFF"/>
+            <Setter Property="BorderBrush" Value="{StaticResource SecondaryHoverBrush}"/>
+            <Setter Property="BorderThickness" Value="1"/>
+            <Setter Property="FontWeight" Value="SemiBold"/>
+            <Setter Property="Cursor" Value="Hand"/>
+        </Style>
+
+        <Style x:Key="PrimaryButton" TargetType="Button" BasedOn="{StaticResource {x:Type Button}}">
+            <Setter Property="Background" Value="{StaticResource PrimaryBrush}"/>
+            <Setter Property="BorderBrush" Value="{StaticResource PrimaryHoverBrush}"/>
+        </Style>
+
+        <Style x:Key="AccentButton" TargetType="Button" BasedOn="{StaticResource {x:Type Button}}">
+            <Setter Property="Background" Value="{StaticResource AccentBrush}"/>
+            <Setter Property="BorderBrush" Value="#D99A20"/>
+            <Setter Property="Foreground" Value="#1A1A1C"/>
+        </Style>
+
+        <Style TargetType="DataGridColumnHeader">
+            <Setter Property="Background" Value="#1A2E42"/>
+            <Setter Property="Foreground" Value="#E8E8E8"/>
+            <Setter Property="BorderBrush" Value="{StaticResource BorderBrush}"/>
+            <Setter Property="BorderThickness" Value="0,0,0,1"/>
+            <Setter Property="Padding" Value="8,6"/>
+            <Setter Property="FontWeight" Value="SemiBold"/>
+        </Style>
+    </Window.Resources>
+
+    <Grid Margin="14">
+        <Grid.ColumnDefinitions>
+            <ColumnDefinition Width="360"/>
+            <ColumnDefinition Width="14"/>
+            <ColumnDefinition Width="*"/>
+        </Grid.ColumnDefinitions>
+
+        <Border Grid.Column="0" Background="{StaticResource SurfaceAltBrush}" BorderBrush="{StaticResource BorderBrush}" BorderThickness="1" CornerRadius="10" Padding="12">
+            <ScrollViewer VerticalScrollBarVisibility="Auto"
+                          HorizontalScrollBarVisibility="Disabled"
+                          CanContentScroll="True">
+            <Grid>
+                <Grid.RowDefinitions>
+                    <RowDefinition Height="Auto"/>
+                    <RowDefinition Height="10"/>
+                    <RowDefinition Height="Auto"/>
+                    <RowDefinition Height="10"/>
+                    <RowDefinition Height="Auto"/>
+                    <RowDefinition Height="10"/>
+                    <RowDefinition Height="Auto"/>
+                    <RowDefinition Height="*"/>
+                </Grid.RowDefinitions>
+
+                <StackPanel Grid.Row="0">
+                    <TextBlock Text="RENUMBER BY SPLINE BY GM" FontSize="18" FontWeight="Bold"/>
+                    <TextBlock Text="Sort selected elements along a curve and apply fixed-width numbering." Foreground="{StaticResource TextMutedBrush}" TextWrapping="Wrap" Margin="0,4,0,0"/>
+                </StackPanel>
+
+                <GroupBox Grid.Row="2" Header="Selection">
+                    <StackPanel>
+                        <TextBlock Text="Category filter" Foreground="{StaticResource TextMutedBrush}"/>
+                        <ComboBox x:Name="CmbCategory" SelectionChanged="category_changed"/>
+                        <Button x:Name="BtnRefreshCategories" Content="Refresh Categories" Click="refresh_categories_click" Style="{StaticResource {x:Type Button}}"/>
+                        <TextBlock Text="Path curve" Foreground="{StaticResource TextMutedBrush}"/>
+                        <TextBlock x:Name="TxtCurve" Text="No spline selected" Margin="0,2,0,8" TextWrapping="Wrap"/>
+                        <TextBlock Text="Target elements" Foreground="{StaticResource TextMutedBrush}"/>
+                        <TextBlock x:Name="TxtSelectionCount" Text="0 elements selected" Margin="0,2,0,8"/>
+                        <TextBlock Text="Use the tool in this order:" Foreground="{StaticResource TextMutedBrush}" FontWeight="SemiBold" Margin="0,0,0,4"/>
+                        <TextBlock Text="Step 1. Choose the target category." Foreground="{StaticResource TextMutedBrush}" TextWrapping="Wrap"/>
+                        <TextBlock Text="Step 2. Click Pick Spline / Curve and select the spline. The start of the spline becomes the first element." Foreground="{StaticResource TextMutedBrush}" TextWrapping="Wrap" Margin="0,2,0,0"/>
+                        <TextBlock Text="Step 3. Click Pick Elements, select the target elements in Revit, then press Finish in the ribbon." Foreground="{StaticResource TextMutedBrush}" TextWrapping="Wrap" Margin="0,2,0,0"/>
+                        <TextBlock Text="Step 4. Review preview, numbering settings, and target parameter, then click Renumber." Foreground="{StaticResource TextMutedBrush}" TextWrapping="Wrap" Margin="0,2,0,8"/>
+
+                        <Button x:Name="BtnPickCurve" Content="Step 2 - Pick Spline / Curve" Click="pick_curve_click" Style="{StaticResource PrimaryButton}"/>
+                        <Button x:Name="BtnPickElements" Content="Step 3 - Pick Elements" Click="pick_elements_click" Style="{StaticResource {x:Type Button}}"/>
+                        <Button x:Name="BtnUseSelection" Content="Use Current Selection" Click="use_selection_click" Style="{StaticResource {x:Type Button}}"/>
+                        <Button x:Name="BtnClear" Content="Clear" Click="clear_click" Style="{StaticResource {x:Type Button}}"/>
+                    </StackPanel>
+                </GroupBox>
+
+                <GroupBox Grid.Row="4" Header="Renumbering">
+                    <Grid>
+                        <Grid.RowDefinitions>
+                            <RowDefinition Height="Auto"/>
+                            <RowDefinition Height="Auto"/>
+                            <RowDefinition Height="Auto"/>
+                            <RowDefinition Height="Auto"/>
+                            <RowDefinition Height="Auto"/>
+                            <RowDefinition Height="Auto"/>
+                        </Grid.RowDefinitions>
+
+                        <TextBlock Grid.Row="0" Text="Target parameter" Foreground="{StaticResource TextMutedBrush}"/>
+                        <ComboBox Grid.Row="1" x:Name="CmbParameter" IsEditable="True" IsTextSearchEnabled="True"/>
+
+                        <Grid Grid.Row="2" Margin="0,10,0,0">
+                            <Grid.ColumnDefinitions>
+                                <ColumnDefinition Width="*"/>
+                                <ColumnDefinition Width="10"/>
+                                <ColumnDefinition Width="*"/>
+                            </Grid.ColumnDefinitions>
+                            <StackPanel Grid.Column="0">
+                                <TextBlock Text="Start number" Foreground="{StaticResource TextMutedBrush}"/>
+                                <TextBox x:Name="TxtStart" Text="1"/>
+                            </StackPanel>
+                            <StackPanel Grid.Column="2">
+                                <TextBlock Text="Step" Foreground="{StaticResource TextMutedBrush}"/>
+                                <TextBox x:Name="TxtStep" Text="1"/>
+                            </StackPanel>
+                        </Grid>
+
+                        <Grid Grid.Row="3" Margin="0,10,0,0">
+                            <Grid.ColumnDefinitions>
+                                <ColumnDefinition Width="*"/>
+                                <ColumnDefinition Width="10"/>
+                                <ColumnDefinition Width="*"/>
+                            </Grid.ColumnDefinitions>
+                            <StackPanel Grid.Column="0">
+                                <TextBlock Text="Leading zeros" Foreground="{StaticResource TextMutedBrush}"/>
+                                <TextBox x:Name="TxtZeros" Text="2" ToolTip="2 means 001-009, 010-099, 100+"/>
+                            </StackPanel>
+                            <StackPanel Grid.Column="2">
+                                <TextBlock Text="Direction" Foreground="{StaticResource TextMutedBrush}"/>
+                                <CheckBox x:Name="ChkReverse" Content="Reverse spline order"/>
+                            </StackPanel>
+                        </Grid>
+
+                        <Grid Grid.Row="4" Margin="0,10,0,0">
+                            <Grid.ColumnDefinitions>
+                                <ColumnDefinition Width="*"/>
+                                <ColumnDefinition Width="10"/>
+                                <ColumnDefinition Width="*"/>
+                            </Grid.ColumnDefinitions>
+                            <StackPanel Grid.Column="0">
+                                <TextBlock Text="Prefix" Foreground="{StaticResource TextMutedBrush}"/>
+                                <TextBox x:Name="TxtPrefix" Text=""/>
+                            </StackPanel>
+                            <StackPanel Grid.Column="2">
+                                <TextBlock Text="Suffix" Foreground="{StaticResource TextMutedBrush}"/>
+                                <TextBox x:Name="TxtSuffix" Text=""/>
+                            </StackPanel>
+                        </Grid>
+
+                        <TextBlock Grid.Row="5" Text="Padding is fixed width: 2 gives 001-009, then 010, 011..." Foreground="{StaticResource TextMutedBrush}" TextWrapping="Wrap" Margin="0,10,0,0"/>
+                    </Grid>
+                </GroupBox>
+
+                <GroupBox Grid.Row="6" Header="Actions">
+                    <StackPanel>
+                        <Button x:Name="BtnPreview" Content="Preview Order" Click="preview_click" Style="{StaticResource {x:Type Button}}"/>
+                        <Button x:Name="BtnRenumber" Content="Step 4 - Renumber" Click="renumber_click" Style="{StaticResource AccentButton}"/>
+                        <TextBlock x:Name="TxtStatus" Text="Ready." Foreground="{StaticResource TextMutedBrush}" TextWrapping="Wrap" Margin="0,10,0,0"/>
+                    </StackPanel>
+                </GroupBox>
+            </Grid>
+            </ScrollViewer>
+        </Border>
+
+        <Border Grid.Column="2" Background="{StaticResource SurfaceBrush}" BorderBrush="{StaticResource BorderBrush}" BorderThickness="1" CornerRadius="10" Padding="12">
+            <Grid>
+                <Grid.RowDefinitions>
+                    <RowDefinition Height="Auto"/>
+                    <RowDefinition Height="10"/>
+                    <RowDefinition Height="*"/>
+                </Grid.RowDefinitions>
+
+                <StackPanel Grid.Row="0">
+                    <TextBlock Text="Preview" FontSize="16" FontWeight="Bold"/>
+                    <TextBlock Text="Ordered preview: spline position, current value, and the new value that Renumber will write." Foreground="{StaticResource TextMutedBrush}" TextWrapping="Wrap" Margin="0,4,0,0"/>
+                </StackPanel>
+
+                <DataGrid Grid.Row="2" x:Name="PreviewGrid"
+                          AutoGenerateColumns="False"
+                          IsReadOnly="True"
+                          CanUserAddRows="False"
+                          CanUserDeleteRows="False"
+                          CanUserResizeRows="False"
+                          HeadersVisibility="Column"
+                          GridLinesVisibility="Horizontal"
+                          HorizontalGridLinesBrush="{StaticResource BorderBrush}"
+                          Background="#1E1E22"
+                          BorderBrush="{StaticResource BorderBrush}"
+                          RowBackground="#232327"
+                          AlternatingRowBackground="#26262A"
+                          Foreground="#E8E8E8">
+                    <DataGrid.Columns>
+                        <DataGridTextColumn Header="#" Binding="{Binding Order}" Width="50"/>
+                        <DataGridTextColumn Header="Element" Binding="{Binding ElementLabel}" Width="*"/>
+                        <DataGridTextColumn Header="Current" Binding="{Binding CurrentValue}" Width="180"/>
+                        <DataGridTextColumn Header="New" Binding="{Binding NewValue}" Width="180"/>
+                    </DataGrid.Columns>
+                </DataGrid>
+            </Grid>
+        </Border>
+    </Grid>
+</Window>
