@@ -1,0 +1,10 @@
+title:
+  en_us: Linked Type Overlay
+tooltip:
+  en_us: |
+    Select linked family types from an architectural link, analyze checked plan views,
+    and place host family types, tags, or text notes at the linked element locations.
+
+author: GM
+engine:
+  persistent: true

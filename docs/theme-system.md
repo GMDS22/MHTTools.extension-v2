@@ -53,6 +53,10 @@ This document is the single source of truth for UI theme tokens and usage rules 
   - Primary action: blue background, white text.
   - Secondary action: neutral surface with teal border or subtle teal emphasis.
   - Critical warning action: amber accent treatment.
+- Combo boxes:
+  - Closed-state background must use a dark surface token such as `surface-1` or `surface-2`, never a light or white fill inside dark-theme tools.
+  - Selected text and dropdown-item text must use `text-main` or another clearly contrasting foreground.
+  - Dropdown popup backgrounds and item rows must use dark surface tokens distinct from the foreground text so the selected value remains readable.
 - Cards/Sections:
   - Use consistent surface layering (`surface-1` and `surface-2`) and border token.
 - Typography:
@@ -66,7 +70,7 @@ This document is the single source of truth for UI theme tokens and usage rules 
 2. Propagate token usage to XAML resource dictionaries/styles.
 3. Remove one-off hardcoded colors where practical.
 4. Verify labels/tooltips remain clear and consistent.
-5. Run visual QA pass for consistency and contrast.
+5. Run visual QA pass for consistency and contrast, including ComboBox closed state, popup state, and selected-item readability.
 
 ## Change Log
 

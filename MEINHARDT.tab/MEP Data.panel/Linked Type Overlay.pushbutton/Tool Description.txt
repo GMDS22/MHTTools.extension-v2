@@ -1,0 +1,31 @@
+Linked Type Overlay checks selected linked family types from a loaded architectural model and shows them on checked host plan views.
+It can create one of three outputs at the linked element locations:
+
+- Host family instances from a selected supported host family type
+- Linked-element tags
+- Text notes using a token-based note format
+
+How to use (quick guide)
+
+Open the tool.
+Step 1: choose the linked architectural model, search the available linked family types, and tick the source types you want to overlay. You can also use Pick from Current View to select linked source instances directly from the active plan.
+Step 2: tick the host plan views that should receive the overlay output. Use Active or the quick view option to keep the current checked set or switch to the active host plan view only.
+Step 3: choose the output mode:
+- Place Host Family Type for supported point-based host families
+- Create Tags to tag the linked source instances
+- Create Text Notes to place note text at each linked instance location
+If using text notes, edit the note format tokens such as {family}, {type}, {category}, {link}, {id}, or {view}.
+Click Analyze Checked Views to preview how many linked instances will be processed in each view.
+Review the summary in Step 4, then click Create Overlay.
+
+Recommended defaults for most users
+
+Keep Skip nearby duplicates enabled.
+Start with Analyze Checked Views before creating anything.
+Use Text Notes or Tags first if the host family output you want is not a supported point-based family type.
+
+Important notes
+
+Host family placement supports safe point-based family types only: view-based and one-level-based.
+Linked source matching is based on the selected family type, the plan view level, and the plan crop region.
+If a checked view returns zero matches, confirm the selected link is visible in that plan and that the linked family instances sit on the expected level.
