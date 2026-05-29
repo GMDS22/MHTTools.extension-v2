@@ -198,7 +198,7 @@
                 </Setter.Value>
             </Setter>
         </Style>
-        <Style TargetType="ComboBoxItem">
+        <Style x:Key="DarkComboBoxItemStyle" TargetType="ComboBoxItem">
             <Setter Property="Background" Value="#252528"/>
             <Setter Property="Foreground" Value="#E8E8E8"/>
             <Setter Property="Padding" Value="8,4"/>
@@ -213,6 +213,9 @@
                 </Trigger>
             </Style.Triggers>
         </Style>
+        <DataTemplate x:Key="ComboBoxItemTemplate">
+            <TextBlock Text="{Binding}" Foreground="#E8E8E8" TextWrapping="NoWrap"/>
+        </DataTemplate>
         <Style TargetType="ListBox">
             <Setter Property="Background" Value="#1E1E22"/>
             <Setter Property="Foreground" Value="#E8E8E8"/>
@@ -256,72 +259,86 @@
                             <TextBlock Style="{StaticResource StepNum}" Text="1"/>
                         </Border>
                         <StackPanel>
-                            <TextBlock Style="{StaticResource StepTitle}" Text="Select Linked Family Types"/>
+                            <TextBlock Style="{StaticResource StepTitle}" Text="Select Linked Element Types"/>
                             <TextBlock Style="{StaticResource Hint}"
-                                       Text="Choose the linked architectural model, search the linked family types, tick the source types you want to show, or pick linked source elements directly from the current view."/>
+                                       Text="Choose the linked architectural model, search the linked element types, tick the source types you want to show, or pick linked source elements directly from the current view."/>
                         </StackPanel>
                     </StackPanel>
 
-                    <Grid DockPanel.Dock="Top" Margin="0,0,0,8">
-                        <Grid.ColumnDefinitions>
-                            <ColumnDefinition Width="280"/>
-                            <ColumnDefinition Width="12"/>
-                            <ColumnDefinition Width="*"/>
-                        </Grid.ColumnDefinitions>
+                    <StackPanel DockPanel.Dock="Top" Margin="0,0,0,8">
+                        <TextBlock Style="{StaticResource ListLabel}" Text="Source Input Mode"/>
+                        <ComboBox x:Name="cmbSourceInputMode"
+                                  Height="28"
+                                  SelectionChanged="source_input_mode_changed"
+                                  ToolTip="Choose whether Step 1 shows source-type search or direct picking from the current view.">
+                            <ComboBoxItem Content="Find Source Element Types"/>
+                            <ComboBoxItem Content="Pick from Current View"/>
+                        </ComboBox>
+                    </StackPanel>
 
-                        <StackPanel Grid.Column="0">
-                            <TextBlock Style="{StaticResource ListLabel}" Text="Linked Model"/>
-                            <ComboBox x:Name="cmbSelectLink"
-                                      Height="28"
-                                      SelectionChanged="link_selection_changed"
-                                      ToolTip="Select the loaded linked model that contains the architectural family types you want to overlay."/>
+                    <StackPanel DockPanel.Dock="Top" Margin="0,0,0,8">
+                        <TextBlock Style="{StaticResource ListLabel}" Text="Active Linked Model (auto from picked element)"/>
+                        <Border Background="#1E1E22"
+                                BorderBrush="{StaticResource BorderBrush}"
+                                BorderThickness="1"
+                                Padding="8,5"
+                                Margin="0,0,0,6">
+                            <TextBlock x:Name="txtActiveLinkInfo"
+                                       Style="{StaticResource InfoValue}"
+                                       Text="No active linked model yet. Click Pick from Current View to set it automatically."
+                                       Foreground="{StaticResource MutedTextBrush}"/>
+                        </Border>
+                    </StackPanel>
+
+                    <StackPanel x:Name="pnlFindSourceTypes" DockPanel.Dock="Top" Margin="0,0,0,8">
+                        <TextBlock Style="{StaticResource ListLabel}" Text="Find Source Element Types"/>
+                        <StackPanel Orientation="Horizontal">
+                            <TextBox x:Name="txtSourceSearch"
+                                     Width="260"
+                                     TextChanged="source_search_changed"
+                                     ToolTip="Type part of a category, family, or type name to filter the linked element type list."/>
+                            <Button Content="All"
+                                    Click="select_all_source_types_click"
+                                    MinWidth="44"
+                                    ToolTip="Check all linked element types currently shown in the filtered list."/>
+                            <Button Content="None"
+                                    Click="deselect_all_source_types_click"
+                                    MinWidth="52"
+                                    ToolTip="Clear all linked element type selections."/>
+                            <Button Content="Refresh"
+                                    Click="refresh_source_types_click"
+                                    MinWidth="68"
+                                    ToolTip="Rescan source element types from the current active linked model context."/>
                         </StackPanel>
 
-                        <StackPanel Grid.Column="2">
-                            <TextBlock Style="{StaticResource ListLabel}" Text="Find Source Family Types"/>
-                            <StackPanel Orientation="Horizontal">
-                                <TextBox x:Name="txtSourceSearch"
-                                         Width="260"
-                                         TextChanged="source_search_changed"
-                                         ToolTip="Type part of a category, family, or type name to filter the linked family type list."/>
-                                <Button Content="All"
-                                        Click="select_all_source_types_click"
-                                        MinWidth="44"
-                                        ToolTip="Check all linked family types currently shown in the filtered list."/>
-                                <Button Content="None"
-                                        Click="deselect_all_source_types_click"
-                                        MinWidth="52"
-                                        ToolTip="Clear all linked family type selections."/>
-                                <Button Content="Refresh"
-                                        Click="refresh_source_types_click"
-                                        MinWidth="68"
-                                    ToolTip="Rescan the selected linked model for available family types."/>
-                                <Button Content="Pick from Current View"
-                                    Click="pick_source_elements_click"
-                                    MinWidth="142"
-                                    Margin="0"
-                                        ToolTip="Pick linked source family instances from the current view and auto-check their family types in Step 1."/>
-                            </StackPanel>
-                        </StackPanel>
-                    </Grid>
+                        <ListBox x:Name="lstSourceTypes"
+                                 Height="220"
+                                 AlternationCount="2"
+                                 ItemContainerStyle="{StaticResource RowStyle}"
+                                 ToolTip="Tick one or more linked element types to analyze and overlay."/>
 
-                    <ListBox x:Name="lstSourceTypes"
-                             Height="220"
-                             AlternationCount="2"
-                             ItemContainerStyle="{StaticResource RowStyle}"
-                             ToolTip="Tick one or more linked family types to analyze and overlay."/>
+                        <Border Background="#1E1E22"
+                                BorderBrush="{StaticResource BorderBrush}"
+                                BorderThickness="1"
+                                Padding="8,6"
+                                Margin="0,8,0,0">
+                            <TextBlock x:Name="txtSourceSummary"
+                                       Style="{StaticResource InfoValue}"
+                                       Text="No linked element types selected yet."
+                                       Foreground="{StaticResource MutedTextBrush}"/>
+                        </Border>
+                    </StackPanel>
 
-                    <Border DockPanel.Dock="Bottom"
-                            Background="#1E1E22"
-                            BorderBrush="{StaticResource BorderBrush}"
-                            BorderThickness="1"
-                            Padding="8,6"
-                            Margin="0,8,0,0">
-                        <TextBlock x:Name="txtSourceSummary"
-                                   Style="{StaticResource InfoValue}"
-                                   Text="No linked family types selected yet."
-                                   Foreground="{StaticResource MutedTextBrush}"/>
-                    </Border>
+                    <StackPanel x:Name="pnlPickSourceElements" DockPanel.Dock="Top" Margin="0,0,0,8">
+                        <TextBlock Style="{StaticResource ListLabel}" Text="Pick Linked Source Elements"/>
+                        <Button Content="Pick from Current View"
+                                Click="pick_source_elements_click"
+                                MinWidth="142"
+                                Margin="0"
+                                ToolTip="Pick linked source elements from the current view; this automatically sets the active linked model and checks matching source types."/>
+                        <TextBlock Style="{StaticResource Hint}"
+                                   Text="Use this mode when you want to select linked elements directly instead of searching the source-type list."/>
+                    </StackPanel>
                 </DockPanel>
             </Border>
 
@@ -398,7 +415,7 @@
                         <StackPanel>
                             <TextBlock Style="{StaticResource StepTitle}" Text="Choose Overlay Output"/>
                             <TextBlock Style="{StaticResource Hint}"
-                                       Text="Pick whether the overlay should create host family instances, linked tags, or text notes."/>
+                                       Text="Pick whether the overlay should create host family instances, detail items, generic annotations, linked tags, or text notes. View-based detail items and generic annotations are included in the supported host-family list when available."/>
                         </StackPanel>
                     </StackPanel>
 
@@ -420,6 +437,8 @@
                             <TextBlock Style="{StaticResource ListLabel}" Text="Output Mode"/>
                             <ComboBox x:Name="cmbOutputMode"
                                       Height="28"
+                                      ItemTemplate="{StaticResource ComboBoxItemTemplate}"
+                                      ItemContainerStyle="{StaticResource DarkComboBoxItemStyle}"
                                       SelectionChanged="output_mode_changed"
                                       ToolTip="Choose the type of overlay object to create at the linked element locations.">
                                 <ComboBoxItem Content="Place Host Family Type"/>
@@ -428,33 +447,39 @@
                             </ComboBox>
                         </StackPanel>
 
-                        <StackPanel Grid.Row="0" Grid.Column="2">
-                            <TextBlock Style="{StaticResource ListLabel}" Text="Supported Host Family Type"/>
+                        <StackPanel x:Name="pnlHostFamilyType" Grid.Row="0" Grid.Column="2">
+                            <TextBlock Style="{StaticResource ListLabel}" Text="Supported Host Family Type / Detail Item / Annotation"/>
                             <ComboBox x:Name="cmbHostFamilyType"
                                       Height="28"
-                                      ToolTip="Choose the host family type to place. Supported family placement types are view-based and one-level-based."/>
+                                      ItemTemplate="{StaticResource ComboBoxItemTemplate}"
+                                      ItemContainerStyle="{StaticResource DarkComboBoxItemStyle}"
+                                      ToolTip="Choose the host family type to place. Supported placement types are view-based and one-level-based, including loaded detail items and generic annotations when supported by Revit."/>
                         </StackPanel>
 
-                        <StackPanel Grid.Row="1" Grid.Column="0" Margin="0,8,0,0">
+                        <StackPanel x:Name="pnlTagType" Grid.Row="1" Grid.Column="0" Margin="0,8,0,0">
                             <TextBlock Style="{StaticResource ListLabel}" Text="Tag Type"/>
                             <ComboBox x:Name="cmbTagType"
                                       Height="28"
+                                      ItemTemplate="{StaticResource ComboBoxItemTemplate}"
+                                      ItemContainerStyle="{StaticResource DarkComboBoxItemStyle}"
                                       ToolTip="Choose the tag family type to use when creating linked-element tags. Use a tag compatible with the linked source category."/>
                         </StackPanel>
 
-                        <StackPanel Grid.Row="1" Grid.Column="2" Margin="0,8,0,0">
+                        <StackPanel x:Name="pnlTextType" Grid.Row="1" Grid.Column="2" Margin="0,8,0,0">
                             <TextBlock Style="{StaticResource ListLabel}" Text="Text Note Type"/>
                             <ComboBox x:Name="cmbTextType"
                                       Height="28"
+                                                                            ItemTemplate="{StaticResource ComboBoxItemTemplate}"
+                                                                            ItemContainerStyle="{StaticResource DarkComboBoxItemStyle}"
                                       ToolTip="Choose the text note type to use when placing note markers at the linked element locations."/>
                         </StackPanel>
 
-                        <StackPanel Grid.Row="2" Grid.ColumnSpan="3" Margin="0,8,0,0">
-                            <TextBlock Style="{StaticResource ListLabel}" Text="Text Note Format"/>
+                        <StackPanel x:Name="pnlTextNoteContent" Grid.Row="2" Grid.ColumnSpan="3" Margin="0,8,0,0">
+                                                        <TextBlock Style="{StaticResource ListLabel}" Text="Text Note Content"/>
                             <TextBox x:Name="txtNoteFormat"
-                                     ToolTip="Used only for text-note output. Available tokens: {family}, {type}, {category}, {link}, {id}, and {view}."/>
+                                                                         ToolTip="Used only for text-note output. Type the exact text you want placed in the note."/>
                             <TextBlock Style="{StaticResource Hint}"
-                                       Text="Use tokens such as {family}, {type}, {category}, {link}, {id}, and {view}. Example: {family} - {type}"/>
+                                                                             Text="Example: Located equipment / specialty item."/>
                         </StackPanel>
 
                         <StackPanel Grid.Row="3" Grid.ColumnSpan="3" Orientation="Horizontal" Margin="0,8,0,0">

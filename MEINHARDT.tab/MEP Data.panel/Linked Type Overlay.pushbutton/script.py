@@ -30,6 +30,7 @@ from Autodesk.Revit.UI.Selection import ObjectType
 from pyrevit import DB, forms, revit, script
 from pyrevit.forms import WPFWindow
 from System.Windows.Controls import CheckBox
+from System.Windows import Visibility
 import System
 
 
@@ -38,7 +39,7 @@ uidoc = revit.uidoc
 logger = script.get_logger()
 
 __title__ = "Linked Type\nOverlay"
-__doc__ = "Select linked family types, analyze host plan views, and create family, tag, or text overlays at linked element locations."
+__doc__ = "Select linked element types, analyze host plan views, and create family, tag, or text overlays at linked element locations."
 
 
 def normalize_name(text):
@@ -136,7 +137,20 @@ def get_plan_views():
     return views
 
 
-def get_element_point(element):
+def _center_from_bbox(bbox):
+    if bbox is None:
+        return None
+    try:
+        return XYZ(
+            (bbox.Min.X + bbox.Max.X) * 0.5,
+            (bbox.Min.Y + bbox.Max.Y) * 0.5,
+            (bbox.Min.Z + bbox.Max.Z) * 0.5,
+        )
+    except Exception:
+        return None
+
+
+def get_element_point(element, source_doc=None):
     if element is None:
         return None
 
@@ -153,15 +167,120 @@ def get_element_point(element):
     try:
         bbox = element.get_BoundingBox(None)
         if bbox is not None:
-            return XYZ(
-                (bbox.Min.X + bbox.Max.X) * 0.5,
-                (bbox.Min.Y + bbox.Max.Y) * 0.5,
-                (bbox.Min.Z + bbox.Max.Z) * 0.5,
-            )
+            return _center_from_bbox(bbox)
     except Exception:
         pass
 
+    if source_doc is not None:
+        try:
+            owner_view_id = getattr(element, "OwnerViewId", None)
+            if owner_view_id and owner_view_id != ElementId.InvalidElementId:
+                owner_view = source_doc.GetElement(owner_view_id)
+                bbox = element.get_BoundingBox(owner_view) if owner_view is not None else None
+                point = _center_from_bbox(bbox)
+                if point is not None:
+                    return point
+        except Exception:
+            pass
+
+        try:
+            options = DB.Options()
+            options.IncludeNonVisibleObjects = True
+            geometry = element.get_Geometry(options)
+            if geometry is not None:
+                try:
+                    geom_bbox = geometry.GetBoundingBox()
+                except Exception:
+                    geom_bbox = None
+                point = _center_from_bbox(geom_bbox)
+                if point is not None:
+                    return point
+        except Exception:
+            pass
+
     return None
+
+
+def get_source_descriptor(element, source_doc):
+    if element is None or source_doc is None:
+        return None
+
+    try:
+        category = element.Category
+    except Exception:
+        category = None
+
+    if category is None:
+        return None
+
+    category_id = None
+    category_name = "<No Category>"
+    try:
+        category_id = category.Id.IntegerValue
+        category_name = category.Name or "<No Category>"
+    except Exception:
+        return None
+
+    type_elem = None
+    type_name = ""
+    family_name = ""
+    source_label = safe_name(element)
+
+    try:
+        type_id = element.GetTypeId()
+    except Exception:
+        type_id = ElementId.InvalidElementId
+    type_id_int = None
+    try:
+        if type_id and type_id != ElementId.InvalidElementId:
+            type_id_int = type_id.IntegerValue
+    except Exception:
+        type_id_int = None
+
+    if type_id and type_id != ElementId.InvalidElementId:
+        try:
+            type_elem = source_doc.GetElement(type_id)
+        except Exception:
+            type_elem = None
+
+    if isinstance(element, FamilyInstance):
+        try:
+            symbol = getattr(element, "Symbol", None)
+            family = getattr(symbol, "Family", None) if symbol is not None else None
+            if family is not None:
+                family_name = safe_name(family, "")
+            if symbol is not None:
+                type_name = safe_name(symbol, "")
+        except Exception:
+            pass
+
+    if not family_name and type_elem is not None:
+        try:
+            family_name = getattr(type_elem, "FamilyName", None) or ""
+        except Exception:
+            family_name = ""
+
+    if not type_name and type_elem is not None:
+        type_name = safe_name(type_elem, "")
+
+    if not family_name:
+        family_name = category_name
+    if not type_name:
+        type_name = source_label or category_name
+
+    if type_id_int is not None:
+        key = (category_id, "tid", type_id_int)
+    else:
+        key = (category_id, "name", normalize_name(family_name), normalize_name(type_name))
+    return {
+        "key": key,
+        "category_id": category_id,
+        "category_name": category_name,
+        "family_name": family_name,
+        "type_name": type_name,
+        "type_id_int": type_id_int,
+        "source_label": source_label,
+    }
 
 
 def best_match_link_level(link_doc, host_level):
@@ -272,7 +391,7 @@ class LinkedTypeOverlayWindow(WPFWindow):
         WPFWindow.__init__(self, xaml_file_name)
 
         self.links = []
-        self.link_lookup = []
+        self.active_link_id = None
         self.source_type_items = []
         self.source_instances_by_key = {}
         self.view_items = []
@@ -288,10 +407,12 @@ class LinkedTypeOverlayWindow(WPFWindow):
         if not self.links:
             return
 
-        self._populate_link_selector()
+        self._seed_active_link()
         self._build_view_list()
         self._load_output_choices()
-        self.txtNoteFormat.Text = "{family} - {type}"
+        self.cmbSourceInputMode.SelectedIndex = 0
+        self._update_source_input_mode_ui()
+        self.txtNoteFormat.Text = ""
         self.cmbOutputMode.SelectedIndex = 0
         self._refresh_source_types()
         self._refresh_view_list("")
@@ -305,15 +426,38 @@ class LinkedTypeOverlayWindow(WPFWindow):
             forms.alert("No loaded Revit links found. Load at least one linked model and retry.")
             self.Close()
 
-    def _selected_link_row(self):
-        idx = getattr(self.cmbSelectLink, "SelectedIndex", -1)
-        if idx is None or idx < 0 or idx >= len(self.links):
+    def _seed_active_link(self):
+        if not self.links:
+            self.active_link_id = None
+            return
+        # Prefer architectural-like links, fallback to first loaded link.
+        chosen = self.links[0]
+        for row in self.links:
+            if is_architectural_link(row.get("name", "")):
+                chosen = row
+                break
+        try:
+            self.active_link_id = chosen["instance"].Id.IntegerValue
+        except Exception:
+            self.active_link_id = None
+        self._update_active_link_info()
+
+    def _get_link_row_by_id(self, link_id_int):
+        if link_id_int is None:
             return None
-        return self.links[idx]
+        for row in self.links:
+            try:
+                if row["instance"].Id.IntegerValue == link_id_int:
+                    return row
+            except Exception:
+                continue
+        return None
 
     def _selected_link(self):
-        row = self._selected_link_row()
-        return row["instance"] if row else None
+        row = self._get_link_row_by_id(self.active_link_id)
+        if row is not None:
+            return row["instance"]
+        return self.links[0]["instance"] if self.links else None
 
     def _selected_link_doc(self):
         link_inst = self._selected_link()
@@ -324,18 +468,32 @@ class LinkedTypeOverlayWindow(WPFWindow):
         except Exception:
             return None
 
-    def _populate_link_selector(self):
-        self.cmbSelectLink.Items.Clear()
-        for row in self.links:
-            self.cmbSelectLink.Items.Add(row["display"])
-        if self.links:
-            self.cmbSelectLink.SelectedIndex = 0
+    def _set_selected_link_by_id(self, link_id_int):
+        row = self._get_link_row_by_id(link_id_int)
+        if row is None:
+            return False
+        try:
+            self.active_link_id = row["instance"].Id.IntegerValue
+        except Exception:
+            self.active_link_id = None
+        self._update_active_link_info()
+        return True
+
+    def _update_active_link_info(self):
+        box = getattr(self, "txtActiveLinkInfo", None)
+        if box is None:
+            return
+        row = self._get_link_row_by_id(self.active_link_id)
+        if row is None:
+            box.Text = "No active linked model yet. Click Pick from Current View to set it automatically."
+            return
+        box.Text = "{0}".format(row.get("display", "<Linked Model>"))
 
     def _build_source_checkbox(self, item):
         cb = CheckBox()
         cb.Content = item["display"]
         cb.IsChecked = False
-        cb.ToolTip = "Tick this linked family type to include it in the analysis and overlay run."
+        cb.ToolTip = "Tick this linked element type to include it in the analysis and overlay run."
         cb.Checked += self.source_selection_changed
         cb.Unchecked += self.source_selection_changed
         return cb
@@ -365,37 +523,23 @@ class LinkedTypeOverlayWindow(WPFWindow):
 
         counters = {}
         try:
-            instances = FilteredElementCollector(link_doc).OfClass(FamilyInstance).WhereElementIsNotElementType().ToElements()
+            instances = FilteredElementCollector(link_doc).WhereElementIsNotElementType().ToElements()
         except Exception:
             instances = []
 
         for inst in instances:
-            try:
-                category = inst.Category
-                symbol = getattr(inst, "Symbol", None)
-                family = getattr(symbol, "Family", None) if symbol is not None else None
-                if category is None or symbol is None or family is None:
-                    continue
-                category_id = category.Id.IntegerValue
-                category_name = category.Name or "<No Category>"
-                family_name = safe_name(family)
-                type_name = safe_name(symbol)
-                key = (category_id, normalize_name(family_name), normalize_name(type_name))
-                data = counters.get(key)
-                if data is None:
-                    data = {
-                        "key": key,
-                        "category_id": category_id,
-                        "category_name": category_name,
-                        "family_name": family_name,
-                        "type_name": type_name,
-                        "count": 0,
-                    }
-                    counters[key] = data
-                data["count"] += 1
-                self.source_instances_by_key.setdefault(key, []).append(inst)
-            except Exception:
+            descriptor = get_source_descriptor(inst, link_doc)
+            if descriptor is None:
                 continue
+
+            key = descriptor["key"]
+            data = counters.get(key)
+            if data is None:
+                data = dict(descriptor)
+                data["count"] = 0
+                counters[key] = data
+            data["count"] += 1
+            self.source_instances_by_key.setdefault(key, []).append(inst)
 
         for key, data in sorted(counters.items(), key=lambda item: (
             item[1]["category_name"].lower(),
@@ -422,6 +566,7 @@ class LinkedTypeOverlayWindow(WPFWindow):
 
         self._refresh_source_list(self.txtSourceSearch.Text)
         self._reset_analysis()
+        self._update_active_link_info()
 
     def _refresh_source_list(self, search_text):
         self.lstSourceTypes.Items.Clear()
@@ -581,6 +726,16 @@ class LinkedTypeOverlayWindow(WPFWindow):
             return "text"
         return "family"
 
+    def _selected_source_input_mode(self):
+        selected = getattr(self.cmbSourceInputMode, "SelectedItem", None)
+        if selected is None:
+            return "find"
+        text = str(selected.Content) if hasattr(selected, "Content") else str(selected)
+        lowered = text.lower()
+        if "pick" in lowered:
+            return "pick"
+        return "find"
+
     def _selected_host_symbol(self):
         idx = getattr(self.cmbHostFamilyType, "SelectedIndex", -1)
         if idx is None or idx < 0 or idx >= len(self.host_symbol_items):
@@ -602,10 +757,10 @@ class LinkedTypeOverlayWindow(WPFWindow):
     def _update_source_summary(self):
         selected = self._selected_source_items()
         if not selected:
-            self.txtSourceSummary.Text = "No linked family types selected yet."
+            self.txtSourceSummary.Text = "No linked element types selected yet."
             return
 
-        lines = ["Selected linked family types: {0}".format(len(selected))]
+        lines = ["Selected linked element types: {0}".format(len(selected))]
         for item in selected[:6]:
             lines.append("- {0}".format(item["display"]))
         if len(selected) > 6:
@@ -631,18 +786,46 @@ class LinkedTypeOverlayWindow(WPFWindow):
 
     def _update_output_mode_ui(self):
         mode = self._selected_output_mode()
-        self.cmbHostFamilyType.IsEnabled = mode == "family"
-        self.cmbTagType.IsEnabled = mode == "tag"
-        self.cmbTextType.IsEnabled = mode == "text"
-        self.txtNoteFormat.IsEnabled = mode == "text"
+        family_visible = mode == "family"
+        tag_visible = mode == "tag"
+        text_visible = mode == "text"
+
+        for name, visible in (
+            ("pnlHostFamilyType", family_visible),
+            ("pnlTagType", tag_visible),
+            ("pnlTextType", text_visible),
+            ("pnlTextNoteContent", text_visible),
+        ):
+            control = getattr(self, name, None)
+            if control is not None:
+                control.Visibility = Visibility.Visible if visible else Visibility.Collapsed
+
+        self.cmbHostFamilyType.IsEnabled = family_visible
+        self.cmbTagType.IsEnabled = tag_visible
+        self.cmbTextType.IsEnabled = text_visible
+        self.txtNoteFormat.IsEnabled = text_visible
 
         if mode == "family":
-            message = "Family overlay will place the selected supported host family type at each linked element location."
+            message = "Family overlay will place the selected supported host family type at each linked element location, including detail items and generic annotations when those host families are loaded and view-based."
         elif mode == "tag":
             message = "Tag overlay will tag each linked element using the selected tag type when compatible."
         else:
-            message = "Text-note overlay will place note text at each linked element location using the selected note format."
+            message = "Text-note overlay will place the exact text from Text Note Content at each linked element location using the selected text note type."
         self.txtOutputSummary.Text = message
+
+    def _update_source_input_mode_ui(self):
+        mode = self._selected_source_input_mode()
+        find_visible = mode == "find"
+        pick_visible = mode == "pick"
+
+        for name, visible in (
+            ("pnlFindSourceTypes", find_visible),
+            ("pnlPickSourceElements", pick_visible),
+        ):
+            control = getattr(self, name, None)
+            if control is not None:
+                control.Visibility = Visibility.Visible if visible else Visibility.Collapsed
+
 
     def _reset_analysis(self):
         self.analysis_rows = []
@@ -666,7 +849,7 @@ class LinkedTypeOverlayWindow(WPFWindow):
         except Exception:
             pass
 
-        point = get_element_point(source_inst)
+        point = get_element_point(source_inst, link_doc)
         if point is None:
             return False, None
 
@@ -708,20 +891,23 @@ class LinkedTypeOverlayWindow(WPFWindow):
         link_doc = self._selected_link_doc()
 
         if link_inst is None or link_doc is None:
-            forms.alert("Select a linked model first.")
+            forms.alert("Pick source elements first to set the active linked model.")
             return []
         if not selected_types:
-            forms.alert("Select at least one linked family type in Step 1.")
+            forms.alert("Select at least one linked element type in Step 1.")
             return []
         if not selected_views:
             forms.alert("Select at least one host plan view in Step 2.")
             return []
 
         rows = []
+        skipped_unlocatable = 0
         for view in selected_views:
             for item in selected_types:
                 for source_inst in self.source_instances_by_key.get(item["key"], []):
                     matches, world_point = self._source_instance_matches_view(source_inst, link_doc, link_inst, view)
+                    if world_point is None:
+                        skipped_unlocatable += 1
                     if not matches:
                         continue
                     rows.append(
@@ -733,6 +919,7 @@ class LinkedTypeOverlayWindow(WPFWindow):
                             "world_point": world_point,
                         }
                     )
+        self._last_skipped_unlocatable = skipped_unlocatable
         return rows
 
     def _build_analysis_summary(self, rows):
@@ -748,9 +935,13 @@ class LinkedTypeOverlayWindow(WPFWindow):
         lines = [
             "Analysis complete.",
             "Checked views: {0}".format(len(self._selected_views())),
-            "Selected linked family types: {0}".format(len(self._selected_source_items())),
+            "Selected linked element types: {0}".format(len(self._selected_source_items())),
             "Matched linked instances: {0}".format(len(rows)),
         ]
+
+        skipped_unlocatable = getattr(self, "_last_skipped_unlocatable", 0)
+        if skipped_unlocatable:
+            lines.append("Skipped instances without usable location: {0}".format(skipped_unlocatable))
 
         if by_view:
             lines.append("Views with matches:")
@@ -802,7 +993,7 @@ class LinkedTypeOverlayWindow(WPFWindow):
                             continue
                     except Exception:
                         continue
-                    point = get_element_point(element)
+                    point = get_element_point(element, doc)
                     if point is not None:
                         result[view_id].append((point, None))
                 continue
@@ -818,7 +1009,7 @@ class LinkedTypeOverlayWindow(WPFWindow):
                             continue
                     except Exception:
                         continue
-                    point = get_element_point(element)
+                    point = get_element_point(element, doc)
                     if point is not None:
                         result[view_id].append((point, getattr(element, "Text", None)))
                 continue
@@ -844,21 +1035,12 @@ class LinkedTypeOverlayWindow(WPFWindow):
         return result
 
     def _note_text_for_row(self, row):
-        template = (self.txtNoteFormat.Text or "").strip()
-        if not template:
-            template = "{family} - {type}"
+        content = (self.txtNoteFormat.Text or "").strip()
+        if content:
+            return content
+
         source_item = row["source_item"]
-        replacements = {
-            "{family}": source_item["family_name"],
-            "{type}": source_item["type_name"],
-            "{category}": source_item["category_name"],
-            "{link}": safe_link_name(row["link_inst"]),
-            "{id}": str(row["source"].Id.IntegerValue),
-            "{view}": safe_name(row["view"]),
-        }
-        for token, value in replacements.items():
-            template = template.replace(token, value or "")
-        return template.strip() or source_item["type_name"]
+        return source_item["type_name"] or source_item["category_name"] or "Linked Item"
 
     def _ensure_symbol_active(self, symbol):
         if symbol is None:
@@ -965,13 +1147,10 @@ class LinkedTypeOverlayWindow(WPFWindow):
         existing_points[view_id].append((point, note_text))
         return True, note
 
-    def link_selection_changed(self, sender, e):
-        self._refresh_source_types()
-
     def pick_source_elements_click(self, sender, e):
         link_inst = self._selected_link()
         if link_inst is None:
-            forms.alert("Select a linked model first.")
+            forms.alert("No loaded linked models found.")
             return
 
         self.Hide()
@@ -989,9 +1168,15 @@ class LinkedTypeOverlayWindow(WPFWindow):
         if not picked_refs:
             return
 
-        chosen_keys = set()
-        skipped_other_link = 0
-        skipped_non_family = 0
+        selected_link_id = None
+        try:
+            selected_link_id = link_inst.Id.IntegerValue
+        except Exception:
+            selected_link_id = None
+
+        chosen_keys_by_link = defaultdict(set)
+        skipped_not_in_selected_link = 0
+        skipped_unusable = 0
 
         for picked in picked_refs:
             if picked is None:
@@ -1005,53 +1190,76 @@ class LinkedTypeOverlayWindow(WPFWindow):
                 continue
 
             try:
-                if picked_link.Id.IntegerValue != link_inst.Id.IntegerValue:
-                    skipped_other_link += 1
-                    continue
-            except Exception:
-                continue
-
-            try:
                 link_doc = picked_link.GetLinkDocument()
-                linked_element = link_doc.GetElement(picked.LinkedElementId) if link_doc is not None else None
+                linked_id = getattr(picked, "LinkedElementId", ElementId.InvalidElementId)
+                if link_doc is not None and linked_id and linked_id != ElementId.InvalidElementId:
+                    linked_element = link_doc.GetElement(linked_id)
+                else:
+                    linked_element = None
             except Exception:
                 linked_element = None
 
-            if linked_element is None or not isinstance(linked_element, FamilyInstance):
-                skipped_non_family += 1
+            descriptor = get_source_descriptor(linked_element, link_doc) if linked_element is not None else None
+            if descriptor is None:
+                skipped_unusable += 1
                 continue
 
             try:
-                category = linked_element.Category
-                symbol = getattr(linked_element, "Symbol", None)
-                family = getattr(symbol, "Family", None) if symbol is not None else None
-                if category is None or symbol is None or family is None:
-                    skipped_non_family += 1
-                    continue
-                chosen_keys.add(
-                    (
-                        category.Id.IntegerValue,
-                        normalize_name(safe_name(family)),
-                        normalize_name(safe_name(symbol)),
-                    )
-                )
+                picked_link_id = picked_link.Id.IntegerValue
             except Exception:
-                skipped_non_family += 1
+                picked_link_id = None
+            if picked_link_id is None:
+                skipped_unusable += 1
+                continue
+
+            chosen_keys_by_link[picked_link_id].add(descriptor["key"])
+
+        if not chosen_keys_by_link:
+            lines = ["No usable linked elements were selected for the current link model."]
+            if skipped_unusable:
+                lines.append("Picked elements missing usable category/type metadata: {0}".format(skipped_unusable))
+            forms.alert("\n".join(lines), title="Linked Type Overlay")
+            return
+
+        chosen_link_id = selected_link_id
+        if chosen_link_id not in chosen_keys_by_link:
+            chosen_link_id = max(chosen_keys_by_link.keys(), key=lambda k: len(chosen_keys_by_link[k]))
+            switched = self._set_selected_link_by_id(chosen_link_id)
+            if switched:
+                self._refresh_source_types()
+        else:
+            self._set_selected_link_by_id(chosen_link_id)
+
+        available_keys = set(item["key"] for item in self.source_type_items)
+        chosen_keys = set()
+        for key in chosen_keys_by_link.get(chosen_link_id, set()):
+            if key in available_keys:
+                chosen_keys.add(key)
+            else:
+                skipped_not_in_selected_link += 1
 
         if not chosen_keys:
-            forms.alert("No linked family instances were picked from the selected link.")
+            lines = ["Picked linked elements could not be matched to the selected link model type list."]
+            if skipped_not_in_selected_link:
+                lines.append("Not found in selected link model list: {0}".format(skipped_not_in_selected_link))
+            if skipped_unusable:
+                lines.append("Picked elements missing usable category/type metadata: {0}".format(skipped_unusable))
+            forms.alert("\n".join(lines), title="Linked Type Overlay")
             return
 
         selected_count = self._set_selected_source_keys(chosen_keys)
-        lines = ["Selected linked family types from current view: {0}".format(selected_count)]
-        if skipped_other_link:
-            lines.append("Ignored picks from other links: {0}".format(skipped_other_link))
-        if skipped_non_family:
-            lines.append("Ignored non-family linked picks: {0}".format(skipped_non_family))
+        lines = ["Selected linked element types from current view: {0}".format(selected_count)]
+        if skipped_not_in_selected_link:
+            lines.append("Ignored picks not present in selected link model list: {0}".format(skipped_not_in_selected_link))
+        if skipped_unusable:
+            lines.append("Ignored linked picks with no usable category/type metadata: {0}".format(skipped_unusable))
         forms.alert("\n".join(lines), title="Linked Type Overlay")
 
     def source_search_changed(self, sender, e):
         self._refresh_source_list(self.txtSourceSearch.Text)
+
+    def source_input_mode_changed(self, sender, e):
+        self._update_source_input_mode_ui()
 
     def view_search_changed(self, sender, e):
         self._refresh_view_list(self.txtViewSearch.Text)
@@ -1205,7 +1413,7 @@ class LinkedTypeOverlayWindow(WPFWindow):
             "Overlay Summary",
             "Mode: {0}".format(mode.title()),
             "Checked views: {0}".format(len(self._selected_views())),
-            "Selected linked family types: {0}".format(len(self._selected_source_items())),
+            "Selected linked element types: {0}".format(len(self._selected_source_items())),
             "Analyzed linked instances: {0}".format(len(self.analysis_rows)),
             "Created objects: {0}".format(created),
             "Skipped nearby duplicates: {0}".format(skipped_duplicates),
