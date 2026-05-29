@@ -1,4 +1,7 @@
 layout:
+  - 08 Selection Filter
+  - GreyOutElements
+  - GreyOutElements_reset
   - SplitPipes
   - SplitSelectedPipes
   - ConnectTo
