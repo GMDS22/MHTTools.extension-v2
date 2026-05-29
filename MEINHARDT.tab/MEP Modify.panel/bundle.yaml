@@ -4,9 +4,22 @@ title:
 layout:
   - RemoveDuplicates
   - 08 Selection Filter
-  - Split
-  - Connect
-  - Align
-  - Color and Legend
-  - Color
-  - Other
+  - SplitPipes
+  - SplitSelectedPipes
+  - ConnectTo
+  - DisConnect
+  - Element3DRotation
+  - MakeParallel
+  - 04 Color by Value (Export-Import)
+  - 05 Color Scheme Editor
+  - 06 Legend Creator
+  - GreyOutElements
+  - GreyOutElements_reset
+  - FlexFlatten
+  - FamilyDelete
+  - FamilyTypeDelete
+  - ParameterDelete
+  - SystemDelete
+  - MoveLabelToOrigin
+  - MoveSpaceToRoom
+  - MoveTitleBlockToOrigin

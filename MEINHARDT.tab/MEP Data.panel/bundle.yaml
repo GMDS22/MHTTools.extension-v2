@@ -6,6 +6,8 @@ layout:
   - ElevationUnder
   - RoomToSpace
   - RenumberBySpline
-  - ParameterTransfer
-  - MaterialsDB
-  - Linked Parameters
+  - ExportMaterialsGraphics
+  - UpdateMaterials
+  - Linked Elements Parameter
+  - Linked Room Parameter
+  - Linked Type Overlay
