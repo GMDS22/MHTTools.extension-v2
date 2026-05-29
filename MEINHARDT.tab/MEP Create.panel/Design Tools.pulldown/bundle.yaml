@@ -1,0 +1,10 @@
+layout:
+  - CreateSection
+  - QuickDimension
+  - HOST
+  - LINK
+  - S2A
+  - BatchCreateSystems
+  - BatchDependentViewCreation
+  - BatchWorksetCreation
+  - PipeTypeFromCSV

@@ -3,8 +3,5 @@ title:
   fr_fr: MEP Gérer
 layout:
   - GM Filters by Value
-  - Link Vis
   - Family Tools
-  - Parameters
-  - Copy
-  - Fluid
+  - Admin Tools

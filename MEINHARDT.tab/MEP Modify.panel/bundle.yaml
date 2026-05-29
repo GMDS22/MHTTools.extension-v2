@@ -5,8 +5,4 @@ layout:
   - RemoveDuplicates
   - Color
   - Filter
-  - Split
-  - Connect
-  - Align
-  - Delete
-  - Move
+  - All Modify

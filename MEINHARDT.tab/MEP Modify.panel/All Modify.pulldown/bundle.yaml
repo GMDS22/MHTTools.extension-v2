@@ -1,0 +1,15 @@
+layout:
+  - SplitPipes
+  - SplitSelectedPipes
+  - ConnectTo
+  - DisConnect
+  - MakeParallel
+  - Element3DRotation
+  - FlexFlatten
+  - FamilyDelete
+  - FamilyTypeDelete
+  - ParameterDelete
+  - SystemDelete
+  - MoveLabelToOrigin
+  - MoveSpaceToRoom
+  - MoveTitleBlockToOrigin
