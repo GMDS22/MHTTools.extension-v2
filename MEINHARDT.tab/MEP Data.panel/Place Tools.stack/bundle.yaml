@@ -1,4 +1,3 @@
 layout:
-  - RenumberBySpline
   - ElementChangeLevel
   - ElevationUnder

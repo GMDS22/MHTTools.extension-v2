@@ -2,6 +2,6 @@ title:
   fr_fr: MEP Données
   en_us: MEP Data
 layout:
-  - RoomToSpace
+  - Space
   - Place Tools
   - Data Manage
