@@ -283,14 +283,20 @@ def get_source_descriptor(element, source_doc):
     }
 
 
-def best_match_link_level(link_doc, host_level):
-    if not link_doc or not host_level:
-        return None
-
+def _collect_link_levels(link_doc):
+    """Return all Level elements from the linked doc (cached per call site)."""
     try:
-        link_levels = FilteredElementCollector(link_doc).OfClass(DB.Level).ToElements()
+        return list(FilteredElementCollector(link_doc).OfClass(DB.Level).ToElements())
     except Exception:
-        link_levels = []
+        return []
+
+
+def best_match_link_level(host_level, link_levels):
+    """Find the best-matching level in link_levels for host_level.
+    Accepts a pre-fetched list so the collector runs only once per view.
+    """
+    if not host_level or not link_levels:
+        return None
 
     if not link_levels:
         return None
@@ -842,7 +848,14 @@ class LinkedTypeOverlayWindow(WPFWindow):
         except Exception:
             return False
 
-    def _source_instance_matches_view(self, source_inst, link_doc, link_inst, view):
+    def _source_instance_matches_view(self, source_inst, link_doc, link_inst, view,
+                                       matched_link_level=None, link_transform=None):
+        """Check whether source_inst should appear in view.
+        Pre-computed matched_link_level and link_transform are accepted so callers
+        can compute them once per view instead of once per instance.
+        Returns (matches, world_point).  world_point is None only when the element
+        has no locatable geometry; other rejection reasons still carry the point.
+        """
         try:
             if link_inst.IsHidden(view):
                 return False, None
@@ -851,16 +864,9 @@ class LinkedTypeOverlayWindow(WPFWindow):
 
         point = get_element_point(source_inst, link_doc)
         if point is None:
+            # Genuinely unlocatable element
             return False, None
 
-        host_level = None
-        try:
-            if hasattr(view, "GenLevel"):
-                host_level = view.GenLevel
-        except Exception:
-            host_level = None
-
-        matched_link_level = best_match_link_level(link_doc, host_level)
         source_level_id = None
         try:
             source_level_id = source_inst.LevelId
@@ -869,18 +875,17 @@ class LinkedTypeOverlayWindow(WPFWindow):
 
         if matched_link_level is not None and source_level_id is not None and source_level_id != ElementId.InvalidElementId:
             if source_level_id != matched_link_level.Id:
-                return False, None
+                return False, point
 
         world_point = point
-        try:
-            transform = link_inst.GetTransform()
-            if transform is not None:
-                world_point = transform.OfPoint(point)
-        except Exception:
-            world_point = point
+        if link_transform is not None:
+            try:
+                world_point = link_transform.OfPoint(point)
+            except Exception:
+                world_point = point
 
         if not point_in_view_crop(view, world_point):
-            return False, None
+            return False, point
 
         return True, world_point
 
@@ -900,12 +905,33 @@ class LinkedTypeOverlayWindow(WPFWindow):
             forms.alert("Select at least one host plan view in Step 2.")
             return []
 
+        # Pre-fetch link levels and transform once — shared across all instances/views.
+        link_levels = _collect_link_levels(link_doc)
+        try:
+            link_transform = link_inst.GetTransform()
+        except Exception:
+            link_transform = None
+
         rows = []
         skipped_unlocatable = 0
         for view in selected_views:
+            # Resolve the matching link level once per view, not per instance.
+            host_level = None
+            try:
+                if hasattr(view, "GenLevel"):
+                    host_level = view.GenLevel
+            except Exception:
+                host_level = None
+            matched_link_level = best_match_link_level(host_level, link_levels)
+
             for item in selected_types:
                 for source_inst in self.source_instances_by_key.get(item["key"], []):
-                    matches, world_point = self._source_instance_matches_view(source_inst, link_doc, link_inst, view)
+                    matches, world_point = self._source_instance_matches_view(
+                        source_inst, link_doc, link_inst, view,
+                        matched_link_level=matched_link_level,
+                        link_transform=link_transform,
+                    )
+                    # world_point is None only when get_element_point could not locate the element.
                     if world_point is None:
                         skipped_unlocatable += 1
                     if not matches:
@@ -1062,7 +1088,6 @@ class LinkedTypeOverlayWindow(WPFWindow):
                 if self._points_close(existing_point, point):
                     return False, "duplicate"
 
-        self._ensure_symbol_active(symbol)
         placement = family_placement_name(symbol)
         if "ViewBased" in placement:
             try:
@@ -1154,14 +1179,14 @@ class LinkedTypeOverlayWindow(WPFWindow):
             return
 
         self.Hide()
+        picked_refs = None
         try:
             picked_refs = uidoc.Selection.PickObjects(
                 ObjectType.LinkedElement,
                 "Pick linked source elements in the current view (ESC to finish)",
             )
         except Exception:
-            self.Show()
-            return
+            pass
         finally:
             self.Show()
 
@@ -1365,11 +1390,16 @@ class LinkedTypeOverlayWindow(WPFWindow):
             ):
                 return
 
-        existing_points = self._existing_points_for_mode(mode, output_type)
+        skip_dupes = bool(self.chkSkipDuplicates.IsChecked)
+        existing_points = self._existing_points_for_mode(mode, output_type) if skip_dupes else {}
         created = 0
         skipped_duplicates = 0
         failed = 0
         fail_messages = []
+
+        # Activate the output symbol once before the transaction loop.
+        if mode == "family" and output_type is not None:
+            self._ensure_symbol_active(output_type)
 
         tx = Transaction(doc, "Linked Type Overlay")
         tx.Start()

@@ -22,6 +22,15 @@ Always align your work with:
 - .github/agents/meinhardt-ui-theme-unifier.agent.md
 - scripts/capture-tool-ui.ps1
 
+## Strict Always-Load References
+- docs/MHTTools-Tool-Description-Standard.md
+- docs/MHTTools-UI-Screenshot-Audit.md
+- .github/instructions/meinhardt-tool-description-html.instructions.md
+- .github/instructions/meinhardt-tool-description-assets.instructions.md
+- .github/instructions/mhttools-metadata-sync.instructions.md
+- .github/instructions/mhttools-screenshot-orchestration.instructions.md
+- MeinhardtTabTools.html
+
 ## Rules
 - Preserve the existing Meinhardt documentation structure unless there is a clear improvement.
 - UI-based tools must include an actual UI screenshot in the document.
@@ -48,3 +57,7 @@ Return results in this order:
 3. Screenshot coverage added or missing
 4. Theme coordination notes
 5. Remaining gaps
+
+## Handoff Triggers
+- If screenshot assets are missing or obsolete, hand off to MHTTools Screenshot Capture Conductor.
+- If metadata/card registry drift is detected, hand off to MHTTools Tool Metadata Registry.
