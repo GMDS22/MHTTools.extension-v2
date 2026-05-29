@@ -8,6 +8,5 @@ tooltip:
   en_us: |
     Create sections from selected linear objects (eg. walls)
     SHIFT-CLICK to display options
-context: selection
 help_url: "{{youtube}}"
 author: "{{author}}"

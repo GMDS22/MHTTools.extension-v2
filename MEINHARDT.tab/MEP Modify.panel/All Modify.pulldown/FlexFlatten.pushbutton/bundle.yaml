@@ -9,5 +9,3 @@ tooltip:
     Flatten selected flexible pipe/duct.
 help_url: "{{youtube}}"
 author: "{{author}}"
-
-context: selection

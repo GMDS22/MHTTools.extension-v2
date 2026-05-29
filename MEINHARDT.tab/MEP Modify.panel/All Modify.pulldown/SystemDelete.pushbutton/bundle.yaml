@@ -8,5 +8,3 @@ tooltip:
     Delete MEP system of selected objects.
 help_url: "{{youtube}}"
 author: "{{author}}"
-
-context: selection

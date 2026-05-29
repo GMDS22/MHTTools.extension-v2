@@ -9,5 +9,3 @@ tooltip:
     Designed for annotation families. It moves selected annotation to center (set 0,0,0 coordinates).
 help_url: "{{youtube}}"
 author: "{{author}}"
-
-context: selection

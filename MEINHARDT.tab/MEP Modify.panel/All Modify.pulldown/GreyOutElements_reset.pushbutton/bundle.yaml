@@ -1,7 +1,6 @@
 title:
   fr_fr: Réinitialiser
   en_us: Reinitialise
-context: "selection"
 tooltip:
   fr_fr: Réinitialiser tous les remplacements graphiques par élémént.
   en_us: Reset all elements graphics overrides.
