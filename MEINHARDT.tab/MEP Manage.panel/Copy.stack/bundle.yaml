@@ -1,0 +1,5 @@
+layout:
+  - CopyPipeType
+  - CopyProjectUnits
+  - CopyViewRange
+  - CopyViewType

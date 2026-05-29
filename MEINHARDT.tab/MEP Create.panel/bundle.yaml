@@ -4,13 +4,7 @@ title:
 layout:
   - 03 Unified Create (Rooms-Areas-Spaces-Zones)
   - Transition
-  - CreateSection
-  - QuickDimension
   - Ductulator
-  - HOST
-  - LINK
-  - S2A
-  - BatchCreateSystems
-  - BatchDependentViewCreation
-  - BatchWorksetCreation
-  - PipeTypeFromCSV
+  - Sections
+  - Link Flow
+  - Batch

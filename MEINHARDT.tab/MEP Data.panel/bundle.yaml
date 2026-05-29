@@ -2,12 +2,8 @@ title:
   fr_fr: MEP Données
   en_us: MEP Data
 layout:
-  - ElementChangeLevel
-  - ElevationUnder
   - RoomToSpace
   - RenumberBySpline
-  - ExportMaterialsGraphics
-  - UpdateMaterials
-  - Linked Elements Parameter
-  - Linked Room Parameter
-  - Linked Type Overlay
+  - Level Change
+  - Linked Params
+  - Materials

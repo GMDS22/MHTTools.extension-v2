@@ -1,0 +1,4 @@
+layout:
+  - ManageDocumentParameters
+  - ManageSharedParameter
+  - ParameterTransfer
