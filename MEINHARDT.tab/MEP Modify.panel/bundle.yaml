@@ -3,13 +3,10 @@ title:
   en_us: MEP Modify
 layout:
   - RemoveDuplicates
-  - 08 Selection Filter
-  - 04 Color by Value (Export-Import)
-  - 05 Color Scheme Editor
-  - 06 Legend Creator
+  - Color
+  - Filter
   - Split
   - Connect
   - Align
-  - Grey
   - Delete
   - Move

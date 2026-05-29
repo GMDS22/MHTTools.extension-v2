@@ -2,8 +2,6 @@ title: Sheets and Views
 
 layout:
   - SheetGenerator
-  - FORMAT
-  - RENUMBER_RENAME
-  - AlignViewports
+  - Sheet Tools
   - View Tools
   - Room Links

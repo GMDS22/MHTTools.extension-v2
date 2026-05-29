@@ -3,7 +3,6 @@ title:
   en_us: MEP Data
 layout:
   - RoomToSpace
-  - RenumberBySpline
-  - Level Change
+  - Place Tools
   - Linked Params
   - Materials
