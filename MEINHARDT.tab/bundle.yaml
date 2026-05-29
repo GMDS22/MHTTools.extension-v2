@@ -1,24 +1,13 @@
 title: MEINHARDT
 
 layout:
-
   - Project
-  - Views Links
-  - IMPORT
-  - MEP Favorites
-  - MEP Modify
+  - Sheets and Views
   - MEP Create
-  - MEP Manage
+  - MEP Modify
   - MEP Data
-  - MEP Check
-  - Mechanical Services
-  - MEP Export
-  - MEP Design
-  - MEP Samples
-  - MEP Lab
-  - MPORT
-  - MHT Ducts
-  - MHT SHEETS
+  - MEP Manage
+  - Audit and Exchange
   - Documentation
   - Search
   - Refresh

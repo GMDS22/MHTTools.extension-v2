@@ -1,7 +1,0 @@
-title:
-  en_us: MEP Design
-layout:
-  - SplitPipes
-  - SplitSelectedPipes
-  - RemoveDuplicates
-  - About

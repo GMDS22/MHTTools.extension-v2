@@ -372,21 +372,16 @@
     </div>
     <p><strong>User Instructions:</strong> Start by selecting the panel from the table of contents below, open the tool card, then follow the basic operation steps. For tools with screenshots, match your UI to the sample image to confirm correct workflow.</p>
   </div>
-  <nav class="toc">
+      <nav class="toc">
     <a href="#installation"><span class="toc-title">Installation Guide</span><span class="toc-desc">First-time setup and quick validation steps.</span></a>
-    <a href="#project"><span class="toc-title">Project Panel</span><span class="toc-desc">Project setup, renaming, and standards baseline.</span></a>
-    <a href="#views-links"><span class="toc-title">Views Links Panel</span><span class="toc-desc">Sheet-driven link display and visibility management.</span></a>
-    <a href="#mht-sheets"><span class="toc-title">MHT SHEETS Panel</span><span class="toc-desc">Drawing list generation and sheet package formatting.</span></a>
-    <a href="#documentation"><span class="toc-title">Documentation Panel</span><span class="toc-desc">Formatting workflows and doc utilities.</span></a>
-    <a href="#import"><span class="toc-title">IMPORT Panel</span><span class="toc-desc">Import external files, data, and references.</span></a>
-    <a href="#mep-check"><span class="toc-title">MEP Check Panel</span><span class="toc-desc">QA checks and model validation helpers.</span></a>
-    <a href="#mep-create"><span class="toc-title">MEP Create Panel</span><span class="toc-desc">Create MEP elements and drafting helpers.</span></a>
-    <a href="#mep-data"><span class="toc-title">MEP Data Panel</span><span class="toc-desc">Parameter edits, mapping, and data cleanup.</span></a>
-    <a href="#mep-design"><span class="toc-title">MEP Design Panel</span><span class="toc-desc">Design actions for routing and coordination.</span></a>
-    <a href="#mep-export"><span class="toc-title">MEP Export Panel</span><span class="toc-desc">Export packages, reports, and deliverables.</span></a>
-    <a href="#mep-favorites"><span class="toc-title">MEP Favorites Panel</span><span class="toc-desc">Frequently used shortcuts for daily tasks.</span></a>
-    <a href="#mep-manage"><span class="toc-title">MEP Manage Panel</span><span class="toc-desc">System management and maintenance tools.</span></a>
-    <a href="#mep-modify"><span class="toc-title">MEP Modify Panel</span><span class="toc-desc">Element edits, alignment, and cleanup actions.</span></a>
+    <a href="#project"><span class="toc-title">Project Panel</span><span class="toc-desc">Project setup, spatial creation, color schemes and legends.</span></a>
+    <a href="#sheets-and-views"><span class="toc-title">Sheets &amp; Views Panel</span><span class="toc-desc">Sheet production, viewport alignment, and link visibility management.</span></a>
+    <a href="#mep-create"><span class="toc-title">MEP Create Panel</span><span class="toc-desc">Create transitions, systems, views, worksets, and duct sizing reference.</span></a>
+    <a href="#mep-modify"><span class="toc-title">MEP Modify Panel</span><span class="toc-desc">Split, connect, align, color-override, and cleanup MEP elements.</span></a>
+    <a href="#mep-data"><span class="toc-title">MEP Data Panel</span><span class="toc-desc">Parameter transfer, level control, renumbering, and linked data projection.</span></a>
+    <a href="#mep-manage"><span class="toc-title">MEP Manage Panel</span><span class="toc-desc">System management, parameters, fluids, and family administration.</span></a>
+    <a href="#audit-and-exchange"><span class="toc-title">Audit &amp; Exchange Panel</span><span class="toc-desc">Model QA checks, mechanical validation, and import/export workflows.</span></a>
+    <a href="#documentation"><span class="toc-title">Documentation Panel</span><span class="toc-desc">Tool manual, naming conventions, and project credits.</span></a>
     <a href="#search"><span class="toc-title">Search Panel</span><span class="toc-desc">Find and run tools quickly across panels.</span></a>
     <a href="#refresh"><span class="toc-title">Refresh Panel</span><span class="toc-desc">Reload extension content and refresh states.</span></a>
     <a href="#all-tools-metadata"><span class="toc-title">All Tools Metadata</span><span class="toc-desc">Icon name, bundle name, and author for all Meinhardt tools.</span></a>
@@ -430,7 +425,7 @@
 
   <section id="project" class="panel">
     <h2>Project Panel</h2>
-    <div class="panel-intro">General description: Planning and project-setup workflows for spatial creation, value-based color control, legends, and standards conversion.</div>
+    <div class="panel-intro">Project setup and standards workflows: spatial element creation, value-based color control with the Color and Legend pulldown, legends, selection tools, family renaming, boundary tools, and link visibility via the Links stack.</div>
     <div class="panel-shot">
       <img src="MEINHARDT.tab/Documentation.panel/ToolsDescription.pushbutton/panel-project.png" alt="Project panel ribbon screenshot">
       <p>Actual panel screenshot: Project panel ribbon layout.</p>
@@ -450,32 +445,48 @@
     </div>
   </section>
 
-  <section id="views-links" class="panel">
-    <h2>Views Links Panel</h2>
-    <div class="panel-intro">General description: Sheet-driven link management for placed views. Use it to batch control link display mode, halftone, hide or unhide link types, and apply linked-grid visibility actions when the active Revit API supports that category override path.</div>
+  <section id="sheets-and-views" class="panel">
+    <h2>Sheets &amp; Views Panel</h2>
+    <div class="panel-intro">Combined sheet production and link visibility management panel. Generate sheets from Excel, format and number them, align viewports, and control how linked model rooms and grids display across all placed views.</div>
     <div class="grid">
-      <article class="tool"><div class="tool-head"><img src="docs/assets/tool-icon.svg" alt="icon"><h3>Plan Link Setup</h3></div><p>Focused setup tool for the repeated mechanical-plan workflow: select sheets and views, choose one loaded source link, choose the linked plan that already shows rooms, then let the tool finish the override sequence automatically.</p><ul><li>Use the structured sheet tree to choose one or many sheets, then confirm which placed views should be edited.</li><li>Select the room-tag source link and the linked view to reuse.</li><li>The tool hides linked grids on all visible links, applies By Linked View to the selected link, then freezes that link to Custom with View Filters set to By Host.</li></ul><p class="ui-caption">Version 2 keeps the same selection-panel logic as Views Links Manager but reduces the settings surface to the exact manual Revit sequence needed for room-tag coordination plans.</p></article>
-      <article class="tool"><div class="tool-head"><img src="docs/assets/tool-icon.svg" alt="icon"><h3>Auto Room Names</h3></div><p>Single-click current-view tool that tries to find the correct architectural linked plan automatically before applying the room-name setup.</p><ul><li>Scans visible architectural links in the active view only.</li><li>Scores linked views using host level match, view type, name similarity, and actual room-tag presence in the linked view.</li><li>Applies the best match, hides linked grids on all visible links, and finishes the selected source link with the same Custom cleanup used by Plan Link Setup.</li></ul><p class="ui-caption">Use this first for the common case. Keep Plan Link Setup for projects where naming is inconsistent or when you need to override the automatic choice.</p></article>
-      <article class="tool"><div class="tool-head"><img src="docs/assets/tool-icon.svg" alt="icon"><h3>QUICK FORMAT</h3></div><p>Smart link configuration tool that intelligently finds and displays room names from linked plan views while hiding grids and dimensions.</p><ul><li>Scans all visible links in the active view.</li><li>Releases RVT Links from view template control if needed.</li><li>For each link, automatically finds the best plan view at the matching level that shows room names.</li><li>Sets each link to Custom mode with the selected room view and View Filters set to By Host.</li><li>Hides grids and dimensions on all links for clean display.</li></ul><p class="ui-caption">Intelligent room name coordination - finds the right view automatically and configures links perfectly.</p></article>
-      <article class="tool"><div class="tool-head"><img src="docs/assets/tool-icon.svg" alt="icon"><h3>Hide Grids</h3></div><p>Standalone tool to hide grids on all visible linked models in the current view.</p><ul><li>Scans all visible links in the active view.</li><li>Hides the grid category on each link's visibility settings.</li><li>Applies changes immediately without additional configuration.</li></ul><p class="ui-caption">Simple grid hiding for linked models - use when you only need to hide grids without other link formatting.</p></article>
-      <article class="tool"><div class="tool-head"><img src="docs/assets/tool-icon.svg" alt="icon"><h3>Views Links Manager</h3></div><div class="tool-split"><div class="tool-split-copy"><p>Three-panel batch editor for Revit links across selected sheets and their placed views.</p><ul><li>Select sheets in the center tree and confirm which placed views should be edited.</li><li>Select target links, or use the architectural-link shortcut to isolate the main architectural model quickly.</li><li>Apply By Host View or By Linked View settings, halftone, hide or unhide actions, and linked-grid actions in one batch.</li></ul></div><div class="tool-split-media"><div class="ui-placeholder shot-ui"><img src="MEINHARDT.tab/Documentation.panel/ToolsDescription.pushbutton/View Links Manager.png" alt="Views Links Manager UI screenshot"></div><p class="ui-caption">Actual UI screenshot: Views Links Manager with sheet selection, link controls, and batch action panels visible in one workspace.</p></div></div></article>
+      <article class="tool"><div class="tool-head"><img src="docs/assets/tool-icon.svg" alt="icon"><h3>SheetGenerator</h3></div><p>Generates planned and dependent views, previews output, and creates sheets from Excel-driven definitions.</p><ul><li>Load Excel source and choose worksheet/titleblock.</li><li>Preview generated views/sheets.</li><li>Run Generate Views then Generate Sheets.</li></ul><div class="ui-placeholder shot-ui"><img src="MEINHARDT.tab/Documentation.panel/ToolsDescription.pushbutton/ui-sheet-generator-LargeUI.png" alt="MHT Sheet Generator UI screenshot"></div><p class="ui-caption">Actual UI screenshot: MHT Sheet Generator panel with source controls, planned/generated view list, and preview pane.</p></article>
+      <article class="tool"><div class="tool-head"><img src="docs/assets/tool-icon.svg" alt="icon"><h3>AlignViewports</h3></div><p>Aligns viewports across selected sheets while optionally normalizing crop settings, legends, overlap behavior, and titleblocks.</p><ul><li>Select the target sheets and choose the main sheet as the alignment reference.</li><li>Enable optional behaviors: Apply same CropBox/ScopeBox, Overlap multiple ViewPlans, Align Legend, or Apply same TitleBlock.</li><li>Run Align Viewports and verify placement matches the reference sheet.</li></ul></article>
+      <article class="tool"><div class="tool-head"><img src="docs/assets/tool-icon.svg" alt="icon"><h3>RENUMBER_RENAME</h3></div><p>Batch renames sheet numbers and sheet names with separate find, replace, prefix, and suffix controls.</p><ul><li>Use the current Project Browser selection or choose sheets from the built-in selector.</li><li>Set independent Find, Replace, Prefix, and Suffix values for both sheet numbers and names.</li><li>Run Rename and review the updated sheet browser entries.</li></ul></article>
+      <article class="tool"><div class="tool-head"><img src="docs/assets/tool-icon.svg" alt="icon"><h3>FORMAT</h3></div><p>Main formatting command for production sheets combining target selection, parameter editing, smart auto fill, and smart viewport alignment.</p><ul><li>Tick target sheets from the center tree.</li><li>Select Sheet, Title Block, or Placed View parameter mode.</li><li>Apply direct edits, Smart Auto Fill, Smart Align, and Auto Revision update as needed.</li></ul><div class="ui-placeholder shot-ui"><img src="MEINHARDT.tab/Documentation.panel/ToolsDescription.pushbutton/ui-format-v3-LargeUI.png" alt="FORMAT V3 UI screenshot"></div><p class="ui-caption">Actual UI screenshot: FORMAT V3 full panel interface with sheet tree, target mode switch, and parameter editor.</p></article>
+      <article class="tool"><div class="tool-head"><img src="docs/assets/tool-icon.svg" alt="icon"><h3>Views Links Manager</h3></div><div class="tool-split"><div class="tool-split-copy"><p>Three-panel batch editor for Revit links across selected sheets and their placed views.</p><ul><li>Select sheets in the center tree and confirm which placed views should be edited.</li><li>Select target links, or use the architectural-link shortcut.</li><li>Apply By Host View or By Linked View settings, halftone, hide or unhide actions, and linked-grid actions in one batch.</li></ul></div><div class="tool-split-media"><div class="ui-placeholder shot-ui"><img src="MEINHARDT.tab/Documentation.panel/ToolsDescription.pushbutton/View Links Manager.png" alt="Views Links Manager UI screenshot"></div><p class="ui-caption">Actual UI screenshot: Views Links Manager with sheet selection, link controls, and batch action panels.</p></div></div></article>
+      <article class="tool"><div class="tool-head"><img src="docs/assets/tool-icon.svg" alt="icon"><h3>QUICK FORMAT</h3></div><p>Smart link configuration tool that finds and displays room names from linked plan views while hiding grids and dimensions.</p><ul><li>Scans all visible links in the active view.</li><li>Releases RVT Links from view template control if needed.</li><li>Sets each link to Custom mode with the best matching room view and View Filters by Host.</li><li>Hides grids and dimensions on all links for clean display.</li></ul></article>
+      <article class="tool"><div class="tool-head"><img src="docs/assets/tool-icon.svg" alt="icon"><h3>Plan Link Setup</h3></div><p>Focused setup tool for the repeated mechanical-plan workflow: select sheets and views, choose one loaded source link, and configure the override sequence automatically.</p><ul><li>Use the structured sheet tree to choose sheets, then confirm which placed views to edit.</li><li>Select the room-tag source link and the linked view to reuse.</li><li>The tool hides linked grids, applies By Linked View to the selected link, then freezes it to Custom with View Filters set to By Host.</li></ul></article>
+      <article class="tool"><div class="tool-head"><img src="docs/assets/tool-icon.svg" alt="icon"><h3>Hide Grids</h3></div><p>Standalone tool to hide grids on all visible linked models in the current view.</p><ul><li>Scans all visible links in the active view.</li><li>Hides the grid category on each link visibility settings.</li><li>Applies changes immediately without additional configuration.</li></ul></article>
+      <article class="tool"><div class="tool-head"><img src="docs/assets/tool-icon.svg" alt="icon"><h3>Auto Room Names</h3></div><p>Single-click current-view tool that finds the correct architectural linked plan automatically before applying the room-name setup.</p><ul><li>Scans visible architectural links in the active view only.</li><li>Scores linked views using level match, view type, name similarity, and room-tag presence.</li><li>Applies the best match, hides linked grids, and finishes with Custom cleanup.</li></ul></article>
+      <article class="tool"><div class="tool-head"><img src="docs/assets/tool-icon.svg" alt="icon"><h3>Copy Room Tags</h3></div><p>Copies room tag families from linked architectural models into the host model for coordination.</p><ul><li>Select source linked model.</li><li>Choose room tags to copy across.</li><li>Place copied tags in host views.</li></ul></article>
     </div>
   </section>
 
-  <section id="mht-sheets" class="panel">
-    <h2>MHT SHEETS Panel</h2>
-    <div class="panel-intro">General description: High-impact sheet production toolkit for Meinhardt deliverables. Use these tools to standardize titleblock data, automate naming logic, align viewports consistently, generate sheets, and prepare issue-ready drawing sets faster.</div>
+  
+
+
+  <section id="mep-create" class="panel"><h2>MEP Create Panel</h2><div class="panel-intro">Create transitions, systems, views, worksets, fittings, dimensions, and access the duct sizing reference.</div><div class="grid"><article class="tool"><div class="tool-head"><img src="docs/assets/tool-icon.svg" alt="icon"><h3>BatchCreateSystems</h3></div><p>Creates new MEP system types from an Excel-style import template, with export support for existing system type data.</p><ul><li>Export the current system type names, abbreviations, and classifications into the workbook template.</li><li>Fill the import sheet with the new system type names, abbreviations, and base system types to duplicate.</li><li>Run Import to duplicate the base system types and apply the configured abbreviations in one batch.</li></ul></article><article class="tool"><div class="tool-head"><img src="docs/assets/tool-icon.svg" alt="icon"><h3>BatchDependentViewCreation</h3></div><p>Creates dependent views from selected parent views and scope boxes.</p></article><article class="tool"><div class="tool-head"><img src="docs/assets/tool-icon.svg" alt="icon"><h3>BatchWorksetCreation</h3></div><p>Creates multiple worksets from a small list editor or from an imported text file in a workshared model.</p><ul><li>Load workset names from a text file or add rows manually in the grid.</li><li>Use the add and remove actions to refine the workset list before creation.</li><li>Click the confirm action to create all listed worksets in a single batch transaction.</li></ul></article><article class="tool"><div class="tool-head"><img src="docs/assets/tool-icon.svg" alt="icon"><h3>PipeTypeFromCSV</h3></div><p>Creates pipe schedule/segment sizes from CSV input.</p></article><article class="tool"><div class="tool-head"><img src="docs/assets/tool-icon.svg" alt="icon"><h3>CreateSection</h3></div><p>Creates section views along selected linear elements.</p></article><article class="tool"><div class="tool-head"><img src="docs/assets/tool-icon.svg" alt="icon"><h3>QuickDimension</h3></div><p>Creates one dimension line to multiple selected references.</p></article><article class="tool"><div class="tool-head"><img src="docs/assets/tool-icon.svg" alt="icon"><h3>Transition</h3></div><p>Creates transition fitting between selected open connectors.</p></article><article class="tool"><div class="tool-head"><img src="docs/assets/tool-icon.svg" alt="icon"><h3>Ductulator</h3></div><p>ENVAR duct sizing reference tool with velocity and pressure-drop tables for duct sizing calculations.</p><ul><li>Open the duct sizing calculator.</li><li>Select duct shape and input flow rate or velocity.</li><li>Read sizing recommendations from the reference tables.</li></ul></article><article class="tool"><div class="tool-head"><img src="docs/assets/tool-icon.svg" alt="icon"><h3>Ductulator</h3></div><p>ENVAR duct sizing reference tool with velocity and pressure-drop tables for duct sizing calculations.</p><ul><li>Open the duct sizing calculator.</li><li>Select duct shape and input flow rate or velocity.</li><li>Read sizing recommendations from the reference tables.</li></ul></article></div></section>
+
+  <section id="mep-data" class="panel"><h2>MEP Data Panel</h2><div class="panel-intro">Parameter and data operations: level change, elevation measurement and room-to-space mapping via the Level and Space stack, renumbering by spline, materials database, and linked model parameter projection via the Linked Parameters pulldown.</div><div class="grid"><article class="tool"><div class="tool-head"><img src="docs/assets/tool-icon.svg" alt="icon"><h3>ElementChangeLevel</h3></div><p>Changes the reference level of selected MEP elements while preserving the intended elevation or offset behavior for supported categories.</p><ul><li>Choose the new level from the level list or pick a reference object to derive its associated level.</li><li>Run the level change against the current selection without manually rehosting each element.</li><li>Use it for ducts, pipes, fittings, accessories, and spaces when the level needs to change but the modeled position must stay consistent.</li></ul></article><article class="tool"><div class="tool-head"><img src="docs/assets/tool-icon.svg" alt="icon"><h3>ElevationUnder</h3></div><p>Measures the distance from selected elements up to the nearest floor or roof above and stores the result in a chosen parameter.</p><ul><li>Confirm or change the target storage parameter name.</li><li>Select the 3D view used for reference intersection if the active view is not suitable.</li><li>Run Compute selected to write the calculated elevation-under value back onto the selected elements.</li></ul></article><article class="tool"><div class="tool-head"><img src="docs/assets/tool-icon.svg" alt="icon"><h3>Linked Room Parameter</h3></div><p>Transfers room data from a linked model into selected host elements using a step-by-step mapping workflow.</p><ul><li>Choose the linked model and detect or manually pick source rooms in the current view.</li><li>Select target categories and host elements, then review the auto-generated parameter mappings.</li><li>Adjust strictness, skip or append behavior, and run Transfer Parameters.</li></ul></article><article class="tool"><div class="tool-head"><img src="docs/assets/tool-icon.svg" alt="icon"><h3>Linked Elements Parameter</h3></div><p>Transfers parameter values from linked source elements into selected host elements with category filtering and mapping controls.</p><ul><li>Choose a linked model, source element type, and detection mode or manual pick workflow.</li><li>Select target categories and host elements, then review and override the proposed mappings.</li><li>Set auto-map strictness and transfer options, then execute the batch transfer.</li></ul></article><article class="tool"><div class="tool-head"><img src="docs/assets/tool-icon.svg" alt="icon"><h3>Parameter Transfer</h3></div><p>Copies or moves values from one parameter to another on the currently selected elements.</p><ul><li>Select the source parameter and compatible destination parameter.</li><li>Optionally convert values to string or clear the source after transfer.</li><li>Create a missing destination parameter when needed, then apply the transfer.</li></ul></article><article class="tool"><div class="tool-head"><img src="docs/assets/tool-icon.svg" alt="icon"><h3>ExportMaterialsGraphics</h3></div><p>Exports material graphics data to JSON for database workflows.</p></article><article class="tool"><div class="tool-head"><img src="docs/assets/tool-icon.svg" alt="icon"><h3>UpdateMaterials</h3></div><p>Updates/regenerates materials database and applies graphics/assets.</p></article><article class="tool"><div class="tool-head"><img src="docs/assets/tool-icon.svg" alt="icon"><h3>RoomToSpace</h3></div><p>Copies room values from another open document or linked source into spaces in the current project using line-by-line field mapping.</p><ul><li>Select the source room document and the target space document.</li><li>Define source room parameter expressions and separators on the left, then map each line to a single target space parameter on the right.</li><li>Run the transfer to populate spaces from rooms located at matching space points.</li></ul></article></div></section>
+
+  <section id="mep-manage" class="panel"><h2>MEP Manage Panel</h2><div class="panel-intro">General description: Document standards management, copy utilities, fluid setup, and parameter administration.</div><div class="panel-shot panel-shot-compact"><img src="MEINHARDT.tab/Documentation.panel/ToolsDescription.pushbutton/panel-mep-manage.png" alt="MEP Manage panel ribbon screenshot"><p>Actual panel screenshot: MEP Manage panel tools.</p></div><div class="grid"><article class="tool"><div class="tool-head"><img src="docs/assets/tool-icon.svg" alt="icon"><h3>Callout Riser Renamer</h3></div><p>Renames selected callouts using riser parameter values.</p></article><article class="tool"><div class="tool-head"><img src="docs/assets/tool-icon.svg" alt="icon"><h3>CopyPipeType</h3></div><p>Copies pipe type from source document.</p></article><article class="tool"><div class="tool-head"><img src="docs/assets/tool-icon.svg" alt="icon"><h3>CopyProjectUnits</h3></div><p>Copies project units from source to target document.</p></article><article class="tool"><div class="tool-head"><img src="docs/assets/tool-icon.svg" alt="icon"><h3>CopyViewRange</h3></div><p>Copies plan view range settings.</p></article><article class="tool"><div class="tool-head"><img src="docs/assets/tool-icon.svg" alt="icon"><h3>CopyViewType</h3></div><p>Copies view family types and template defaults.</p></article><article class="tool"><div class="tool-head"><img src="docs/assets/tool-icon.svg" alt="icon"><h3>FamilyReLoad</h3></div><p>Reloads selected families into target document.</p></article><article class="tool"><div class="tool-head"><img src="docs/assets/tool-icon.svg" alt="icon"><h3>FluidCreate</h3></div><p>Creates/updates fluid definitions and temperature tables.</p></article><article class="tool"><div class="tool-head"><img src="docs/assets/tool-icon.svg" alt="icon"><h3>ReplaceFluid</h3></div><p>Replaces fluid and temperature settings in piping systems.</p></article><article class="tool"><div class="tool-head"><img src="docs/assets/tool-icon.svg" alt="icon"><h3>ManageDocumentParameters</h3></div><p>Opens document parameter manager.</p></article><article class="tool"><div class="tool-head"><img src="docs/assets/tool-icon.svg" alt="icon"><h3>ManageSharedParameter</h3></div><p>Opens shared parameter manager.</p></article></div></section>
+
+  <section id="mep-modify" class="panel"><h2>MEP Modify Panel</h2><div class="panel-intro">Element modification, cleanup, and utility transforms: split pipes/ducts with the Split stack, connect and align elements, color overrides, flex pipe management, and batch delete/move operations.</div><div class="panel-shot panel-shot-compact"><img src="MEINHARDT.tab/Documentation.panel/ToolsDescription.pushbutton/panel-mep-modify-a.png" alt="MEP Modify panel ribbon screenshot"><p>Actual panel screenshot: MEP Modify panel (layout A).</p></div><div class="panel-shot panel-shot-compact"><img src="MEINHARDT.tab/Documentation.panel/ToolsDescription.pushbutton/panel-mep-modify-b.png" alt="MEP Modify panel ribbon screenshot alternate"><p>Actual panel screenshot: MEP Modify panel (layout B).</p></div><div class="grid"><article class="tool"><div class="tool-head"><img src="docs/assets/tool-icon.svg" alt="icon"><h3>SplitPipes</h3></div><p>Splits all eligible pipes in the project by PipeType and configured distance.</p><ul><li>Configure split options and target pipe types.</li><li>Run split across all matching pipes in the project.</li><li>Review split results and verify joint placement.</li></ul></article><article class="tool"><div class="tool-head"><img src="docs/assets/tool-icon.svg" alt="icon"><h3>SplitSelectedPipes</h3></div><p>Splits only the currently selected pipes by type and distance.</p><ul><li>Select target pipes in the view.</li><li>Run split on selection only.</li><li>Review results.</li></ul></article><article class="tool"><div class="tool-head"><img src="docs/assets/tool-icon.svg" alt="icon"><h3>RemoveDuplicates</h3></div><p>Finds and removes duplicate MEP elements across selected categories.</p><ul><li>Select categories to scan.</li><li>Review detected duplicates.</li><li>Execute removal.</li></ul></article><article class="tool"><div class="tool-head"><img src="docs/assets/tool-icon.svg" alt="icon"><h3>GreyOutElements</h3></div><p>Applies gray graphic overrides in active view.</p></article><article class="tool"><div class="tool-head"><img src="docs/assets/tool-icon.svg" alt="icon"><h3>GreyOutElements_reset</h3></div><p>Resets gray overrides from GreyOutElements.</p></article><article class="tool"><div class="tool-head"><img src="docs/assets/tool-icon.svg" alt="icon"><h3>ConnectTo</h3></div><p>Connector move-and-connect workflow.</p></article><article class="tool"><div class="tool-head"><img src="docs/assets/tool-icon.svg" alt="icon"><h3>DisConnect</h3></div><p>Disconnect selected connectors.</p></article><article class="tool"><div class="tool-head"><img src="docs/assets/tool-icon.svg" alt="icon"><h3>Element3DRotation</h3></div><p>Rotates selected element(s) around chosen axis using modeless UI.</p></article><article class="tool"><div class="tool-head"><img src="docs/assets/tool-icon.svg" alt="icon"><h3>MakeParallel</h3></div><p>Aligns target elements parallel to reference.</p></article><article class="tool"><div class="tool-head"><img src="docs/assets/tool-icon.svg" alt="icon"><h3>FamilyDelete</h3></div><p>Deletes selected families.</p></article><article class="tool"><div class="tool-head"><img src="docs/assets/tool-icon.svg" alt="icon"><h3>FamilyTypeDelete</h3></div><p>Deletes selected family types.</p></article><article class="tool"><div class="tool-head"><img src="docs/assets/tool-icon.svg" alt="icon"><h3>ParameterDelete</h3></div><p>Deletes selected project parameters.</p></article><article class="tool"><div class="tool-head"><img src="docs/assets/tool-icon.svg" alt="icon"><h3>SystemDelete</h3></div><p>Deletes selected system objects.</p></article><article class="tool"><div class="tool-head"><img src="docs/assets/tool-icon.svg" alt="icon"><h3>FlexFlatten</h3></div><p>Flattens selected flex elements.</p></article><article class="tool"><div class="tool-head"><img src="docs/assets/tool-icon.svg" alt="icon"><h3>MoveLabelToOrigin</h3></div><p>Moves selected labels/annotations to origin.</p></article><article class="tool"><div class="tool-head"><img src="docs/assets/tool-icon.svg" alt="icon"><h3>MoveSpaceToRoom</h3></div><p>Moves spaces to corresponding room positions by room number.</p></article><article class="tool"><div class="tool-head"><img src="docs/assets/tool-icon.svg" alt="icon"><h3>MoveTitleBlockToOrigin</h3></div><p>Moves title block annotation to origin.</p></article></div></section>
+
+  <section id="audit-and-exchange" class="panel">
+    <h2>Audit &amp; Exchange Panel</h2>
+    <div class="panel-intro">Model quality checks, mechanical duct validation, space-to-room comparison, Excel data import, and batch IFC export grouped into one QA and data exchange panel.</div>
     <div class="grid">
-      <article class="tool"><div class="tool-head"><img src="docs/assets/tool-icon.svg" alt="icon"><h3>FORMAT</h3></div><p>Main formatting command for production sheets. It combines target selection, sheet filtering, parameter editing, smart auto fill, and smart viewport alignment in one workspace.</p><ul><li>Tick target sheets from the center tree.</li><li>Select Sheet, Title Block, or Placed View parameter mode.</li><li>Apply direct edits, Smart Auto Fill, Smart Align, and Auto Revision update as needed.</li></ul><div class="ui-placeholder shot-ui"><img src="MEINHARDT.tab/Documentation.panel/ToolsDescription.pushbutton/ui-format-v3-LargeUI.png" alt="FORMAT V3 UI screenshot"></div><p class="ui-caption">Actual UI screenshot: FORMAT V3 full panel interface with sheet tree, target mode switch, and parameter editor.</p></article>
-      <article class="tool"><div class="tool-head"><img src="docs/assets/tool-icon.svg" alt="icon"><h3>SheetGenerator</h3></div><p>Generates planned and dependent views, previews output, and creates sheets from Excel-driven definitions.</p><ul><li>Load Excel source and choose worksheet/titleblock.</li><li>Preview generated views/sheets.</li><li>Run Generate Views then Generate Sheets.</li></ul><div class="ui-placeholder shot-ui"><img src="MEINHARDT.tab/Documentation.panel/ToolsDescription.pushbutton/ui-sheet-generator-LargeUI.png" alt="MHT Sheet Generator UI screenshot"></div><p class="ui-caption">Actual UI screenshot: MHT Sheet Generator panel with source controls, planned/generated view list, and preview pane.</p></article>
-      <article class="tool"><div class="tool-head"><img src="docs/assets/tool-icon.svg" alt="icon"><h3>RENUMBER_RENAME</h3></div><p>Batch renames sheet numbers and sheet names with separate find, replace, prefix, and suffix controls.</p><ul><li>Use the current Project Browser selection or choose sheets from the built-in selector when nothing is preselected.</li><li>Set independent Find, Replace, Prefix, and Suffix values for both sheet numbers and sheet names.</li><li>Run Rename and review the updated sheet browser entries after the tool refreshes the browser.</li></ul></article>
-      <article class="tool"><div class="tool-head"><img src="docs/assets/tool-icon.svg" alt="icon"><h3>AlignViewports</h3></div><p>Aligns viewports across selected sheets while optionally normalizing crop settings, legends, overlap behavior, and titleblocks.</p><ul><li>Select the target sheets and choose the main sheet that will act as the alignment reference.</li><li>Enable optional behaviors such as Apply same CropBox/ScopeBox, Overlap multiple ViewPlans, Align Legend, or Apply same TitleBlock.</li><li>Run Align Viewports and verify that sheets follow the same placement standard as the reference sheet.</li></ul></article>
+      <article class="tool"><div class="tool-head"><img src="docs/assets/tool-icon.svg" alt="icon"><h3>SMART CHECKER</h3></div><p>Three-panel duct QA workspace for scope selection, editable rule authoring, and result review with automatic navigation to failing ducts.</p><ul><li>Choose the duct scope and optional level filter, then preview how many ducts are in the check set.</li><li>Edit rule names, parameter aliases, rule mode, allowed values, or minimum thresholds in the middle panel and enable only the checks you want to run.</li><li>Run Check, inspect the failing results list, and click any row to jump directly to that duct in the active or 3D view.</li></ul></article>
+      <article class="tool"><div class="tool-head"><img src="docs/assets/tool-icon.svg" alt="icon"><h3>SpaceVsRoom</h3></div><p>Compares rooms in linked architectural models against spaces in the MEP project and reports name/number mismatches.</p><ul><li>Select the room source linked document.</li><li>Run the comparison.</li><li>Review the mismatch report output and resolve discrepancies.</li></ul></article>
+      <article class="tool"><div class="tool-head"><img src="docs/assets/tool-icon.svg" alt="icon"><h3>Excel</h3></div><p>Imports Excel worksheet content into Revit as either a drafting-view table or a schedule-style table with relinked update support.</p><ul><li>Browse to the Excel file, select the worksheet, and confirm the current source path.</li><li>Choose the output mode: Drafting View Table or Schedule View Table.</li><li>Run Import for first creation or Update to refresh an existing linked table from the saved Excel source.</li></ul></article>
+      <article class="tool"><div class="tool-head"><img src="docs/assets/tool-icon.svg" alt="icon"><h3>MultiIFC</h3></div><p>Batch exports selected 3D views to IFC using a selected IFC export configuration.</p><ul><li>Select the 3D views to export.</li><li>Choose the IFC export configuration.</li><li>Run batch export and confirm output files.</li></ul></article>
     </div>
   </section>
 
   <section id="documentation" class="panel">
     <h2>Documentation Panel</h2>
-    <div class="panel-intro">General description: Access to standards, launcher utilities, and this tool manual.</div>
+    <div class="panel-intro">Access to standards, tool manual, and project credits.</div>
     <div class="panel-shot panel-shot-compact">
       <img src="MEINHARDT.tab/Documentation.panel/ToolsDescription.pushbutton/panel-documentation.png" alt="Documentation panel ribbon screenshot">
       <p>Actual panel screenshot: Documentation panel tools.</p>
@@ -483,28 +494,12 @@
     <div class="grid">
       <article class="tool"><div class="tool-head"><img src="docs/assets/tool-icon.svg" alt="icon"><h3>FamilyNamingConvention</h3></div><p>Opens family naming convention documentation.</p><ul><li>Click tool.</li><li>Review standards.</li></ul></article>
       <article class="tool"><div class="tool-head"><img src="docs/assets/tool-icon.svg" alt="icon"><h3>ToolsDescription</h3></div><p>Opens this browser-formatted tool documentation page.</p><ul><li>Click tool.</li><li>Read panel and tool instructions.</li></ul></article>
+      <article class="tool"><div class="tool-head"><img src="docs/assets/tool-icon.svg" alt="icon"><h3>Credits</h3></div><p>Opens the project author's reference page.</p><ul><li>Click to open the author GitHub profile.</li></ul></article>
     </div>
   </section>
 
-  <section id="import" class="panel"><h2>IMPORT Panel</h2><div class="panel-intro">General description: Data import workflows from external files into Revit views and schedules.</div><div class="grid"><article class="tool"><div class="tool-head"><img src="docs/assets/tool-icon.svg" alt="icon"><h3>Excel</h3></div><p>Imports Excel worksheet content into Revit as either a drafting-view table or a schedule-style table with relinked update support.</p><ul><li>Browse to the Excel file, select the worksheet, and confirm the current source path.</li><li>Choose the output mode between Drafting View Table and Schedule View Table.</li><li>Run Import for first creation or Update to refresh an existing linked table from the saved Excel source.</li></ul></article></div></section>
+  
 
-  <section id="mep-check" class="panel"><h2>MEP Check Panel</h2><div class="panel-intro">General description: Validation workflows for QA checks between model data sources.</div><div class="grid"><article class="tool"><div class="tool-head"><img src="docs/assets/tool-icon.svg" alt="icon"><h3>SpaceVsRoom</h3></div><p>Compares rooms and spaces by name/number and reports mismatches.</p><ul><li>Select room source document.</li><li>Run comparison.</li><li>Review report output.</li></ul></article></div></section>
-
-  <section id="mechanical-services" class="panel"><h2>Mechanical Services Panel</h2><div class="panel-intro">General description: Mechanical QA tools focused on duct model health, parameter completeness, and fast issue isolation.</div><div class="grid"><article class="tool"><div class="tool-head"><img src="docs/assets/tool-icon.svg" alt="icon"><h3>SMART CHECKER</h3></div><p>Three-panel duct QA workspace for scope selection, editable rule authoring, and result review with automatic navigation to failing ducts.</p><ul><li>Choose the duct scope and optional level filter, then preview how many ducts are in the check set.</li><li>Edit rule names, parameter aliases, rule mode, allowed values, or minimum thresholds in the middle panel and enable only the checks you want to run.</li><li>Run Check, inspect the failing results list, and click any row to jump directly to that duct in the active or 3D view.</li></ul></article></div></section>
-
-  <section id="mep-create" class="panel"><h2>MEP Create Panel</h2><div class="panel-intro">General description: Creation and generation workflows for systems, views, worksets, fittings, and dimensions.</div><div class="grid"><article class="tool"><div class="tool-head"><img src="docs/assets/tool-icon.svg" alt="icon"><h3>BatchCreateSystems</h3></div><p>Creates new MEP system types from an Excel-style import template, with export support for existing system type data.</p><ul><li>Export the current system type names, abbreviations, and classifications into the workbook template.</li><li>Fill the import sheet with the new system type names, abbreviations, and base system types to duplicate.</li><li>Run Import to duplicate the base system types and apply the configured abbreviations in one batch.</li></ul></article><article class="tool"><div class="tool-head"><img src="docs/assets/tool-icon.svg" alt="icon"><h3>BatchDependentViewCreation</h3></div><p>Creates dependent views from selected parent views and scope boxes.</p></article><article class="tool"><div class="tool-head"><img src="docs/assets/tool-icon.svg" alt="icon"><h3>BatchWorksetCreation</h3></div><p>Creates multiple worksets from a small list editor or from an imported text file in a workshared model.</p><ul><li>Load workset names from a text file or add rows manually in the grid.</li><li>Use the add and remove actions to refine the workset list before creation.</li><li>Click the confirm action to create all listed worksets in a single batch transaction.</li></ul></article><article class="tool"><div class="tool-head"><img src="docs/assets/tool-icon.svg" alt="icon"><h3>PipeTypeFromCSV</h3></div><p>Creates pipe schedule/segment sizes from CSV input.</p></article><article class="tool"><div class="tool-head"><img src="docs/assets/tool-icon.svg" alt="icon"><h3>CreateSection</h3></div><p>Creates section views along selected linear elements.</p></article><article class="tool"><div class="tool-head"><img src="docs/assets/tool-icon.svg" alt="icon"><h3>QuickDimension</h3></div><p>Creates one dimension line to multiple selected references.</p></article><article class="tool"><div class="tool-head"><img src="docs/assets/tool-icon.svg" alt="icon"><h3>Transition</h3></div><p>Creates transition fitting between selected open connectors.</p></article></div></section>
-
-  <section id="mep-data" class="panel"><h2>MEP Data Panel</h2><div class="panel-intro">General description: Parameter/data transfer, linked-model data projection, level control, and material database operations.</div><div class="grid"><article class="tool"><div class="tool-head"><img src="docs/assets/tool-icon.svg" alt="icon"><h3>ElementChangeLevel</h3></div><p>Changes the reference level of selected MEP elements while preserving the intended elevation or offset behavior for supported categories.</p><ul><li>Choose the new level from the level list or pick a reference object to derive its associated level.</li><li>Run the level change against the current selection without manually rehosting each element.</li><li>Use it for ducts, pipes, fittings, accessories, and spaces when the level needs to change but the modeled position must stay consistent.</li></ul></article><article class="tool"><div class="tool-head"><img src="docs/assets/tool-icon.svg" alt="icon"><h3>ElevationUnder</h3></div><p>Measures the distance from selected elements up to the nearest floor or roof above and stores the result in a chosen parameter.</p><ul><li>Confirm or change the target storage parameter name.</li><li>Select the 3D view used for reference intersection if the active view is not suitable.</li><li>Run Compute selected to write the calculated elevation-under value back onto the selected elements.</li></ul></article><article class="tool"><div class="tool-head"><img src="docs/assets/tool-icon.svg" alt="icon"><h3>Linked Room Parameter</h3></div><p>Transfers room data from a linked model into selected host elements using a step-by-step mapping workflow.</p><ul><li>Choose the linked model and detect or manually pick source rooms in the current view.</li><li>Select target categories and host elements, then review the auto-generated parameter mappings.</li><li>Adjust strictness, skip or append behavior, and run Transfer Parameters.</li></ul></article><article class="tool"><div class="tool-head"><img src="docs/assets/tool-icon.svg" alt="icon"><h3>Linked Elements Parameter</h3></div><p>Transfers parameter values from linked source elements into selected host elements with category filtering and mapping controls.</p><ul><li>Choose a linked model, source element type, and detection mode or manual pick workflow.</li><li>Select target categories and host elements, then review and override the proposed mappings.</li><li>Set auto-map strictness and transfer options, then execute the batch transfer.</li></ul></article><article class="tool"><div class="tool-head"><img src="docs/assets/tool-icon.svg" alt="icon"><h3>Parameter Transfer</h3></div><p>Copies or moves values from one parameter to another on the currently selected elements.</p><ul><li>Select the source parameter and compatible destination parameter.</li><li>Optionally convert values to string or clear the source after transfer.</li><li>Create a missing destination parameter when needed, then apply the transfer.</li></ul></article><article class="tool"><div class="tool-head"><img src="docs/assets/tool-icon.svg" alt="icon"><h3>ExportMaterialsGraphics</h3></div><p>Exports material graphics data to JSON for database workflows.</p></article><article class="tool"><div class="tool-head"><img src="docs/assets/tool-icon.svg" alt="icon"><h3>UpdateMaterials</h3></div><p>Updates/regenerates materials database and applies graphics/assets.</p></article><article class="tool"><div class="tool-head"><img src="docs/assets/tool-icon.svg" alt="icon"><h3>RoomToSpace</h3></div><p>Copies room values from another open document or linked source into spaces in the current project using line-by-line field mapping.</p><ul><li>Select the source room document and the target space document.</li><li>Define source room parameter expressions and separators on the left, then map each line to a single target space parameter on the right.</li><li>Run the transfer to populate spaces from rooms located at matching space points.</li></ul></article></div></section>
-
-  <section id="mep-design" class="panel"><h2>MEP Design Panel</h2><div class="panel-intro">General description: Day-to-day MEP design productivity tools for cleanup and network editing.</div><div class="grid"><article class="tool"><div class="tool-head"><img src="docs/assets/tool-icon.svg" alt="icon"><h3>About</h3></div><p>Opens project/author reference page.</p></article><article class="tool"><div class="tool-head"><img src="docs/assets/tool-icon.svg" alt="icon"><h3>RemoveDuplicates</h3></div><p>Finds and removes duplicate elements by category/options.</p></article><article class="tool"><div class="tool-head"><img src="docs/assets/tool-icon.svg" alt="icon"><h3>SplitPipes</h3></div><p>Splits eligible pipes based on configured distance/logic.</p></article><article class="tool"><div class="tool-head"><img src="docs/assets/tool-icon.svg" alt="icon"><h3>SplitSelectedPipes</h3></div><p>Splits only selected pipes.</p></article></div></section>
-
-  <section id="mep-export" class="panel"><h2>MEP Export Panel</h2><div class="panel-intro">General description: Batch export workflows.</div><div class="grid"><article class="tool"><div class="tool-head"><img src="docs/assets/tool-icon.svg" alt="icon"><h3>MultiIFC</h3></div><p>Batch exports selected 3D views to IFC using selected configuration.</p></article></div></section>
-
-  <section id="mep-favorites" class="panel"><h2>MEP Favorites Panel</h2><div class="panel-intro">General description: One-click access to frequently used MEP operations from other panels.</div><div class="panel-shot"><img src="MEINHARDT.tab/Documentation.panel/ToolsDescription.pushbutton/panel-mep-favorites.png" alt="MEP Favorites panel ribbon screenshot"><p>Actual panel screenshot: MEP Favorites quick-access tools.</p></div><div class="grid"><article class="tool"><div class="tool-head"><img src="docs/assets/tool-icon.svg" alt="icon"><h3>ConnectTo</h3></div><p>Moves selected element and connects nearest compatible connector.</p></article><article class="tool"><div class="tool-head"><img src="docs/assets/tool-icon.svg" alt="icon"><h3>DisConnect</h3></div><p>Disconnects connectors on selected elements.</p></article><article class="tool"><div class="tool-head"><img src="docs/assets/tool-icon.svg" alt="icon"><h3>MakeParallel</h3></div><p>Rotates targets to match reference XY direction.</p></article><article class="tool"><div class="tool-head"><img src="docs/assets/tool-icon.svg" alt="icon"><h3>RemoveDuplicates</h3></div><p>Duplicate cleanup.</p></article><article class="tool"><div class="tool-head"><img src="docs/assets/tool-icon.svg" alt="icon"><h3>RoomToSpace</h3></div><p>Room-to-space mapping workflow.</p></article><article class="tool"><div class="tool-head"><img src="docs/assets/tool-icon.svg" alt="icon"><h3>SplitPipes</h3></div><p>Batch split pipes.</p></article><article class="tool"><div class="tool-head"><img src="docs/assets/tool-icon.svg" alt="icon"><h3>SplitSelectedPipes</h3></div><p>Split selected pipes only.</p></article><article class="tool"><div class="tool-head"><img src="docs/assets/tool-icon.svg" alt="icon"><h3>Transition</h3></div><p>Create transition fitting between connectors.</p></article></div></section>
-
-  <section id="mep-manage" class="panel"><h2>MEP Manage Panel</h2><div class="panel-intro">General description: Document standards management, copy utilities, fluid setup, and parameter administration.</div><div class="panel-shot panel-shot-compact"><img src="MEINHARDT.tab/Documentation.panel/ToolsDescription.pushbutton/panel-mep-manage.png" alt="MEP Manage panel ribbon screenshot"><p>Actual panel screenshot: MEP Manage panel tools.</p></div><div class="grid"><article class="tool"><div class="tool-head"><img src="docs/assets/tool-icon.svg" alt="icon"><h3>Callout Riser Renamer</h3></div><p>Renames selected callouts using riser parameter values.</p></article><article class="tool"><div class="tool-head"><img src="docs/assets/tool-icon.svg" alt="icon"><h3>CopyPipeType</h3></div><p>Copies pipe type from source document.</p></article><article class="tool"><div class="tool-head"><img src="docs/assets/tool-icon.svg" alt="icon"><h3>CopyProjectUnits</h3></div><p>Copies project units from source to target document.</p></article><article class="tool"><div class="tool-head"><img src="docs/assets/tool-icon.svg" alt="icon"><h3>CopyViewRange</h3></div><p>Copies plan view range settings.</p></article><article class="tool"><div class="tool-head"><img src="docs/assets/tool-icon.svg" alt="icon"><h3>CopyViewType</h3></div><p>Copies view family types and template defaults.</p></article><article class="tool"><div class="tool-head"><img src="docs/assets/tool-icon.svg" alt="icon"><h3>FamilyReLoad</h3></div><p>Reloads selected families into target document.</p></article><article class="tool"><div class="tool-head"><img src="docs/assets/tool-icon.svg" alt="icon"><h3>FluidCreate</h3></div><p>Creates/updates fluid definitions and temperature tables.</p></article><article class="tool"><div class="tool-head"><img src="docs/assets/tool-icon.svg" alt="icon"><h3>ReplaceFluid</h3></div><p>Replaces fluid and temperature settings in piping systems.</p></article><article class="tool"><div class="tool-head"><img src="docs/assets/tool-icon.svg" alt="icon"><h3>ManageDocumentParameters</h3></div><p>Opens document parameter manager.</p></article><article class="tool"><div class="tool-head"><img src="docs/assets/tool-icon.svg" alt="icon"><h3>ManageSharedParameter</h3></div><p>Opens shared parameter manager.</p></article></div></section>
-
-  <section id="mep-modify" class="panel"><h2>MEP Modify Panel</h2><div class="panel-intro">General description: Element modification, cleanup, color override, and utility transforms.</div><div class="panel-shot panel-shot-compact"><img src="MEINHARDT.tab/Documentation.panel/ToolsDescription.pushbutton/panel-mep-modify-a.png" alt="MEP Modify panel ribbon screenshot"><p>Actual panel screenshot: MEP Modify panel (layout A).</p></div><div class="panel-shot panel-shot-compact"><img src="MEINHARDT.tab/Documentation.panel/ToolsDescription.pushbutton/panel-mep-modify-b.png" alt="MEP Modify panel ribbon screenshot alternate"><p>Actual panel screenshot: MEP Modify panel (layout B).</p></div><div class="grid"><article class="tool"><div class="tool-head"><img src="docs/assets/tool-icon.svg" alt="icon"><h3>GreyOutElements</h3></div><p>Applies gray graphic overrides in active view.</p></article><article class="tool"><div class="tool-head"><img src="docs/assets/tool-icon.svg" alt="icon"><h3>GreyOutElements_reset</h3></div><p>Resets gray overrides from GreyOutElements.</p></article><article class="tool"><div class="tool-head"><img src="docs/assets/tool-icon.svg" alt="icon"><h3>ConnectTo</h3></div><p>Connector move-and-connect workflow.</p></article><article class="tool"><div class="tool-head"><img src="docs/assets/tool-icon.svg" alt="icon"><h3>DisConnect</h3></div><p>Disconnect selected connectors.</p></article><article class="tool"><div class="tool-head"><img src="docs/assets/tool-icon.svg" alt="icon"><h3>Element3DRotation</h3></div><p>Rotates selected element(s) around chosen axis using modeless UI.</p></article><article class="tool"><div class="tool-head"><img src="docs/assets/tool-icon.svg" alt="icon"><h3>MakeParallel</h3></div><p>Aligns target elements parallel to reference.</p></article><article class="tool"><div class="tool-head"><img src="docs/assets/tool-icon.svg" alt="icon"><h3>FamilyDelete</h3></div><p>Deletes selected families.</p></article><article class="tool"><div class="tool-head"><img src="docs/assets/tool-icon.svg" alt="icon"><h3>FamilyTypeDelete</h3></div><p>Deletes selected family types.</p></article><article class="tool"><div class="tool-head"><img src="docs/assets/tool-icon.svg" alt="icon"><h3>ParameterDelete</h3></div><p>Deletes selected project parameters.</p></article><article class="tool"><div class="tool-head"><img src="docs/assets/tool-icon.svg" alt="icon"><h3>SystemDelete</h3></div><p>Deletes selected system objects.</p></article><article class="tool"><div class="tool-head"><img src="docs/assets/tool-icon.svg" alt="icon"><h3>FlexFlatten</h3></div><p>Flattens selected flex elements.</p></article><article class="tool"><div class="tool-head"><img src="docs/assets/tool-icon.svg" alt="icon"><h3>MoveLabelToOrigin</h3></div><p>Moves selected labels/annotations to origin.</p></article><article class="tool"><div class="tool-head"><img src="docs/assets/tool-icon.svg" alt="icon"><h3>MoveSpaceToRoom</h3></div><p>Moves spaces to corresponding room positions by room number.</p></article><article class="tool"><div class="tool-head"><img src="docs/assets/tool-icon.svg" alt="icon"><h3>MoveTitleBlockToOrigin</h3></div><p>Moves title block annotation to origin.</p></article></div></section>
 
 
 
@@ -526,311 +521,104 @@
     <div class='meta-table-wrap'><table class='meta-table'><thead><tr><th>Icon Name</th><th>Bundle Name</th><th>Author</th></tr></thead><tbody>
       <tr><td>icon.png</td><td>FamilyNamingConvention</td><td>MHTTools Team</td></tr>
       <tr><td>icon.png</td><td>ToolsDescription</td><td>MHTTools Team</td></tr>
-    </tbody></table></div></article>
-  <article class='tool'><div class='tool-head'><img src='docs/assets/tool-icon.svg' alt='icon'><h3>IMPORT.panel</h3></div>
-    <div class='meta-table-wrap'><table class='meta-table'><thead><tr><th>Icon Name</th><th>Bundle Name</th><th>Author</th></tr></thead><tbody>
-      <tr><td>icon.png</td><td>Excel</td><td>MHTTools Team</td></tr>
-    </tbody></table></div></article>
-  <article class='tool'><div class='tool-head'><img src='docs/assets/tool-icon.svg' alt='icon'><h3>MEP Check.panel</h3></div>
-    <div class='meta-table-wrap'><table class='meta-table'><thead><tr><th>Icon Name</th><th>Bundle Name</th><th>Author</th></tr></thead><tbody>
-      <tr><td>icon.png</td><td>SpaceVsRoom</td><td>MHTTools Team</td></tr>
-    </tbody></table></div></article>
-  <article class='tool'><div class='tool-head'><img src='docs/assets/tool-icon.svg' alt='icon'><h3>Mechanical Services.panel</h3></div>
-    <div class='meta-table-wrap'><table class='meta-table'><thead><tr><th>Icon Name</th><th>Bundle Name</th><th>Author</th></tr></thead><tbody>
-      <tr><td>icon.png</td><td>SMART CHECKER</td><td>GM</td></tr>
-    </tbody></table></div></article>
-  <article class='tool'><div class='tool-head'><img src='docs/assets/tool-icon.svg' alt='icon'><h3>MEP Create.panel</h3></div>
-    <div class='meta-table-wrap'><table class='meta-table'><thead><tr><th>Icon Name</th><th>Bundle Name</th><th>Author</th></tr></thead><tbody>
-      <tr><td>icon.png</td><td>BatchCreateSystems</td><td>MHTTools Team</td></tr>
-      <tr><td>icon.png</td><td>BatchDependentViewCreation</td><td>MHTTools Team</td></tr>
-      <tr><td>icon.png</td><td>BatchWorksetCreation</td><td>MHTTools Team</td></tr>
-      <tr><td>icon.png</td><td>CreateSection</td><td>MHTTools Team</td></tr>
-      <tr><td>icon.png</td><td>PipeTypeFromCSV</td><td>MHTTools Team</td></tr>
-      <tr><td>icon.png</td><td>QuickDimension</td><td>MHTTools Team</td></tr>
-      <tr><td>icon.png</td><td>Transition</td><td>MHTTools Team</td></tr>
-    </tbody></table></div></article>
-  <article class='tool'><div class='tool-head'><img src='docs/assets/tool-icon.svg' alt='icon'><h3>MEP Data.panel</h3></div>
-    <div class='meta-table-wrap'><table class='meta-table'><thead><tr><th>Icon Name</th><th>Bundle Name</th><th>Author</th></tr></thead><tbody>
-      <tr><td>icon.png</td><td>ElementChangeLevel</td><td>MHTTools Team</td></tr>
-      <tr><td>icon.png</td><td>ElevationUnder</td><td>MHTTools Team</td></tr>
-      <tr><td>icon.png</td><td>ExportMaterialsGraphics</td><td>MHTTools Team</td></tr>
-      <tr><td>icon.png</td><td>RoomToSpace</td><td>MHTTools Team</td></tr>
-      <tr><td>icon.png</td><td>UpdateMaterials</td><td>MHTTools Team</td></tr>
-    </tbody></table></div></article>
-  <article class='tool'><div class='tool-head'><img src='docs/assets/tool-icon.svg' alt='icon'><h3>MEP Design.panel</h3></div>
-    <div class='meta-table-wrap'><table class='meta-table'><thead><tr><th>Icon Name</th><th>Bundle Name</th><th>Author</th></tr></thead><tbody>
-      <tr><td>icon.png</td><td>About</td><td>MHTTools Team</td></tr>
-      <tr><td>icon.png</td><td>RemoveDuplicates</td><td>MHTTools Team</td></tr>
-      <tr><td>icon.png</td><td>SplitPipes</td><td>MHTTools Team</td></tr>
-      <tr><td>icon.png</td><td>SplitSelectedPipes</td><td>MHTTools Team</td></tr>
-    </tbody></table></div></article>
-  <article class='tool'><div class='tool-head'><img src='docs/assets/tool-icon.svg' alt='icon'><h3>MEP Export.panel</h3></div>
-    <div class='meta-table-wrap'><table class='meta-table'><thead><tr><th>Icon Name</th><th>Bundle Name</th><th>Author</th></tr></thead><tbody>
-      <tr><td>icon.png</td><td>MultiIFC</td><td>MHTTools Team</td></tr>
-    </tbody></table></div></article>
-  <article class='tool'><div class='tool-head'><img src='docs/assets/tool-icon.svg' alt='icon'><h3>MEP Favorites.panel</h3></div>
-    <div class='meta-table-wrap'><table class='meta-table'><thead><tr><th>Icon Name</th><th>Bundle Name</th><th>Author</th></tr></thead><tbody>
-      <tr><td>icon.png</td><td>ConnectTo</td><td>MHTTools Team</td></tr>
-      <tr><td>icon.png</td><td>DisConnect</td><td>MHTTools Team</td></tr>
-      <tr><td>icon.png</td><td>MakeParallel</td><td>MHTTools Team</td></tr>
-      <tr><td>icon.png</td><td>RemoveDuplicates</td><td>MHTTools Team</td></tr>
-      <tr><td>icon.png</td><td>RoomToSpace</td><td>MHTTools Team</td></tr>
-      <tr><td>icon.png</td><td>SplitPipes</td><td>MHTTools Team</td></tr>
-      <tr><td>icon.png</td><td>SplitSelectedPipes</td><td>MHTTools Team</td></tr>
-      <tr><td>icon.png</td><td>Transition</td><td>MHTTools Team</td></tr>
-    </tbody></table></div></article>
-  <article class='tool'><div class='tool-head'><img src='docs/assets/tool-icon.svg' alt='icon'><h3>MEP Lab.panel</h3></div>
-    <div class='meta-table-wrap'><table class='meta-table'><thead><tr><th>Icon Name</th><th>Bundle Name</th><th>Author</th></tr></thead><tbody>
-      <tr><td>icon.png</td><td>3DControlView</td><td>MHTTools Team</td></tr>
-      <tr><td>icon.png</td><td>AddReferenceLevel</td><td>MHTTools Team</td></tr>
-      <tr><td>icon.png</td><td>AirFlowSpaceToTerminal</td><td>MHTTools Team</td></tr>
-      <tr><td>icon.png</td><td>AirFlowTerminalToSpace</td><td>MHTTools Team</td></tr>
-      <tr><td>icon.png</td><td>AirFlowToSchematic</td><td>MHTTools Team</td></tr>
-      <tr><td>icon.png</td><td>AutoInsulate</td><td>MHTTools Team</td></tr>
-      <tr><td>icon.png</td><td>BatchObjectParameterSetter</td><td>MHTTools Team</td></tr>
-      <tr><td>icon.png</td><td>CheckCreators</td><td>MHTTools Team</td></tr>
-      <tr><td>icon.png</td><td>ConvertToFlexPipe</td><td>MHTTools Team</td></tr>
-      <tr><td>icon.png</td><td>CopyLegendsLocations</td><td>MHTTools Team</td></tr>
-      <tr><td>icon.png</td><td>CustomExcel</td><td>MHTTools Team</td></tr>
-      <tr><td>icon.png</td><td>FamilyPreview</td><td>MHTTools Team</td></tr>
-      <tr><td>icon.png</td><td>IfcClassItoT</td><td>MHTTools Team</td></tr>
-      <tr><td>icon.png</td><td>LibreOffice</td><td>MHTTools Team</td></tr>
-      <tr><td>icon.png</td><td>ManageSystems</td><td>MHTTools Team</td></tr>
-      <tr><td>icon.png</td><td>MEPLegend</td><td>MHTTools Team</td></tr>
-      <tr><td>icon.png</td><td>odfpy</td><td>MHTTools Team</td></tr>
-      <tr><td>icon.png</td><td>ProvisionForVoidNum</td><td>MHTTools Team</td></tr>
-      <tr><td>icon.png</td><td>PySide2FormSample</td><td>MHTTools Team</td></tr>
-      <tr><td>icon.png</td><td>PySide2UISample</td><td>MHTTools Team</td></tr>
-      <tr><td>icon.png</td><td>ReplaceInName</td><td>MHTTools Team</td></tr>
-      <tr><td>icon.png</td><td>SpaceCopy</td><td>MHTTools Team</td></tr>
-      <tr><td>icon.png</td><td>SpaceNumbering</td><td>MHTTools Team</td></tr>
-      <tr><td>icon.png</td><td>SpaceUuid</td><td>MHTTools Team</td></tr>
-      <tr><td>icon.png</td><td>StraightSegment</td><td>MHTTools Team</td></tr>
-      <tr><td>icon.png</td><td>WPFListViewSample</td><td>MHTTools Team</td></tr>
-      <tr><td>icon.png</td><td>wxCPythonSample</td><td>MHTTools Team</td></tr>
-    </tbody></table></div></article>
-  <article class='tool'><div class='tool-head'><img src='docs/assets/tool-icon.svg' alt='icon'><h3>MEP Manage.panel</h3></div>
-    <div class='meta-table-wrap'><table class='meta-table'><thead><tr><th>Icon Name</th><th>Bundle Name</th><th>Author</th></tr></thead><tbody>
-      <tr><td>icon.png</td><td>Callout Riser Renamer</td><td>Gino Moreno</td></tr>
-      <tr><td>icon.png</td><td>CopyPipeType</td><td>MHTTools Team</td></tr>
-      <tr><td>icon.png</td><td>CopyProjectUnits</td><td>MHTTools Team</td></tr>
-      <tr><td>icon.png</td><td>CopyViewRange</td><td>MHTTools Team</td></tr>
-      <tr><td>icon.png</td><td>CopyViewType</td><td>MHTTools Team</td></tr>
-      <tr><td>icon.png</td><td>FamilyReLoad</td><td>MHTTools Team</td></tr>
-      <tr><td>icon.png</td><td>FluidCreate</td><td>MHTTools Team</td></tr>
-      <tr><td>icon.png</td><td>ManageDocumentParameters</td><td>MHTTools Team</td></tr>
-      <tr><td>icon.png</td><td>ManageSharedParameter</td><td>MHTTools Team</td></tr>
-      <tr><td>icon.png</td><td>ReplaceFluid</td><td>MHTTools Team</td></tr>
-    </tbody></table></div></article>
-  <article class='tool'><div class='tool-head'><img src='docs/assets/tool-icon.svg' alt='icon'><h3>MEP Modify.panel</h3></div>
-    <div class='meta-table-wrap'><table class='meta-table'><thead><tr><th>Icon Name</th><th>Bundle Name</th><th>Author</th></tr></thead><tbody>
-      <tr><td>icon.png</td><td>ConnectTo</td><td>MHTTools Team</td></tr>
-      <tr><td>icon.png</td><td>DisConnect</td><td>MHTTools Team</td></tr>
-      <tr><td>icon.png</td><td>Element3DRotation</td><td>MHTTools Team</td></tr>
-      <tr><td>icon.png</td><td>FamilyDelete</td><td>MHTTools Team</td></tr>
-      <tr><td>icon.png</td><td>FamilyTypeDelete</td><td>MHTTools Team</td></tr>
-      <tr><td>icon.png</td><td>FlexFlatten</td><td>MHTTools Team</td></tr>
-      <tr><td>icon.png</td><td>GreyOutElements</td><td>MHTTools Team</td></tr>
-      <tr><td>icon.png</td><td>GreyOutElements_reset</td><td>MHTTools Team</td></tr>
-      <tr><td>icon.png</td><td>MakeParallel</td><td>MHTTools Team</td></tr>
-      <tr><td>icon.png</td><td>MoveLabelToOrigin</td><td>MHTTools Team</td></tr>
-      <tr><td>icon.png</td><td>MoveSpaceToRoom</td><td>MHTTools Team</td></tr>
-      <tr><td>icon.png</td><td>MoveTitleBlockToOrigin</td><td>MHTTools Team</td></tr>
-      <tr><td>icon.png</td><td>ParameterDelete</td><td>MHTTools Team</td></tr>
-      <tr><td>icon.png</td><td>SystemDelete</td><td>MHTTools Team</td></tr>
-    </tbody></table></div></article>
-  <article class='tool'><div class='tool-head'><img src='docs/assets/tool-icon.svg' alt='icon'><h3>MEP Samples.panel</h3></div>
-    <div class='meta-table-wrap'><table class='meta-table'><thead><tr><th>Icon Name</th><th>Bundle Name</th><th>Author</th></tr></thead><tbody>
-      <tr><td>icon.png</td><td>DataContextSample</td><td>MHTTools Team</td></tr>
-      <tr><td>icon.png</td><td>FormExternalEventHandler</td><td>MHTTools Team</td></tr>
-      <tr><td>icon.png</td><td>SimpleExternalEventHandler</td><td>MHTTools Team</td></tr>
-    </tbody></table></div></article>
-  <article class='tool'><div class='tool-head'><img src='docs/assets/tool-icon.svg' alt='icon'><h3>MEP Tests.panel</h3></div>
-    <div class='meta-table-wrap'><table class='meta-table'><thead><tr><th>Icon Name</th><th>Bundle Name</th><th>Author</th></tr></thead><tbody>
-      <tr><td>icon.png</td><td>unittest_parameter</td><td>MHTTools Team</td></tr>
-    </tbody></table></div></article>
-  <article class='tool'><div class='tool-head'><img src='docs/assets/tool-icon.svg' alt='icon'><h3>MHT SHEETS.panel</h3></div>
-    <div class='meta-table-wrap'><table class='meta-table'><thead><tr><th>Icon Name</th><th>Bundle Name</th><th>Author</th></tr></thead><tbody>
-      <tr><td>icon.png</td><td>ALIGN VP</td><td>GM</td></tr>
-      <tr><td>icon.png</td><td>FORMAT</td><td>GM</td></tr>
-      <tr><td>icon.png</td><td>GENERATE</td><td>GM</td></tr>
-      <tr><td>icon.png</td><td>NUMBER/NAME</td><td>GM</td></tr>
+      <tr><td>icon.png</td><td>About (Credits)</td><td>André Rodrigues da Silva</td></tr>
     </tbody></table></div></article>
   <article class='tool'><div class='tool-head'><img src='docs/assets/tool-icon.svg' alt='icon'><h3>Project.panel</h3></div>
     <div class='meta-table-wrap'><table class='meta-table'><thead><tr><th>Icon Name</th><th>Bundle Name</th><th>Author</th></tr></thead><tbody>
-      <tr><td>icon.png</td><td>07 Family Renamer</td><td>MHTTools Team</td></tr>
-      <tr><td>icon.png</td><td>09 Family Convention Converter</td><td>Gino Moreno</td></tr>
-      <tr><td>icon.png</td><td>COLORS</td><td>GMToolbox</td></tr>
-      <tr><td>icon.png</td><td>Filter by Value</td><td>Gino Moreno</td></tr>
-      <tr><td>icon.png</td><td>HOST</td><td>Gino Moreno</td></tr>
-      <tr><td>icon.png</td><td>Legend Creator</td><td>GM</td></tr>
-      <tr><td>icon.png</td><td>LINK</td><td>Gino Moreno</td></tr>
-      <tr><td>icon.png</td><td>S2A</td><td>Gino Moreno</td></tr>
-      <tr><td>icon.png</td><td>SCHEME</td><td>GMToolbox</td></tr>
-      <tr><td>icon.png</td><td>Selection Filter</td><td>Gino Moreno</td></tr>
-      <tr><td>icon.png</td><td>UNIFIED CREATE</td><td>Gino Moreno</td></tr>
+      <tr><td>icon.png</td><td>03 Unified Create (Rooms-Areas-Spaces-Zones)</td><td>GM</td></tr>
+      <tr><td>icon.png</td><td>Color and Legend [pulldown] → 04 Color by Value (Export-Import)</td><td>GM</td></tr>
+      <tr><td>icon.png</td><td>Color and Legend [pulldown] → 05 Color Scheme Editor</td><td>GM</td></tr>
+      <tr><td>icon.png</td><td>Color and Legend [pulldown] → 06 Legend Creator</td><td>GM</td></tr>
+      <tr><td>icon.png, icon.dark.png, icon.svg</td><td>07 Family Renamer</td><td>GM</td></tr>
+      <tr><td>icon.png</td><td>08 Selection Filter</td><td>GM</td></tr>
+      <tr><td>icon.png</td><td>BOUNDS [pulldown] → HOST</td><td>GM</td></tr>
+      <tr><td>icon.png</td><td>BOUNDS [pulldown] → LINK</td><td>GM</td></tr>
+      <tr><td>icon.png</td><td>BOUNDS [pulldown] → S2A</td><td>GM</td></tr>
+      <tr><td>icon.png</td><td>GM Filters by Value</td><td>GM</td></tr>
+      <tr><td>icon.png</td><td>Links [stack] → LINKS</td><td>GM</td></tr>
+      <tr><td>icon.png</td><td>Links [stack] → LINKVIS</td><td>GM</td></tr>
     </tbody></table></div></article>
-  <article class='tool'><div class='tool-head'><img src='docs/assets/tool-icon.svg' alt='icon'><h3>Views Links.panel</h3></div>
+  <article class='tool'><div class='tool-head'><img src='docs/assets/tool-icon.svg' alt='icon'><h3>Sheets and Views.panel</h3></div>
     <div class='meta-table-wrap'><table class='meta-table'><thead><tr><th>Icon Name</th><th>Bundle Name</th><th>Author</th></tr></thead><tbody>
-      <tr><td>icon.png</td><td>Auto Room Names</td><td>GM</td></tr>
-      <tr><td>icon.png</td><td>Copy Room Tags</td><td>GM</td></tr>
-      <tr><td>icon.png</td><td>Hide Grids</td><td>GM</td></tr>
-      <tr><td>icon.png</td><td>QUICK FORMAT</td><td>GM</td></tr>
-      <tr><td>icon.png</td><td>Plan Link Setup</td><td>GM</td></tr>
+      <tr><td>icon.png</td><td>SheetGenerator</td><td>GM</td></tr>
+      <tr><td>icon.png</td><td>Sheet Ops [stack] → AlignViewports</td><td>GM</td></tr>
+      <tr><td>icon.png</td><td>Sheet Ops [stack] → RENUMBER_RENAME</td><td>GM</td></tr>
+      <tr><td>icon.png</td><td>FORMAT</td><td>GM</td></tr>
       <tr><td>icon.png</td><td>Views Links Manager</td><td>GM</td></tr>
+      <tr><td>icon.png</td><td>View Tools [stack] → QUICK FORMAT</td><td>GM</td></tr>
+      <tr><td>icon.png</td><td>View Tools [stack] → Hide Grids</td><td>GM</td></tr>
+      <tr><td>icon.png</td><td>Plan Link Setup</td><td>GM</td></tr>
+      <tr><td>icon.png</td><td>Room Tags [stack] → Auto Room Names</td><td>GM</td></tr>
+      <tr><td>icon.png</td><td>Room Tags [stack] → Copy Room Tags</td><td>GM</td></tr>
     </tbody></table></div></article>
-  <article class='tool'><div class='tool-head'><img src='docs/assets/tool-icon.svg' alt='icon'><h3>Refresh.panel</h3></div>
+  <article class='tool'><div class='tool-head'><img src='docs/assets/tool-icon.svg' alt='icon'><h3>MEP Create.panel</h3></div>
     <div class='meta-table-wrap'><table class='meta-table'><thead><tr><th>Icon Name</th><th>Bundle Name</th><th>Author</th></tr></thead><tbody>
-      <tr><td>icon.png</td><td>Refresh</td><td>MHTTools Team</td></tr>
+      <tr><td>icon.png, icon.dark.png</td><td>Transition</td><td>Cyril Waechter</td></tr>
+      <tr><td>icon.png</td><td>create1 [stack] → CreateSection</td><td>André Rodrigues da Silva</td></tr>
+      <tr><td>icon.png</td><td>create1 [stack] → QuickDimension</td><td>André Rodrigues da Silva</td></tr>
+      <tr><td>icon.png</td><td>create1 [stack] → BatchCreation [pulldown] → BatchCreateSystems</td><td>André Rodrigues da Silva</td></tr>
+      <tr><td>icon.png</td><td>create1 [stack] → BatchCreation [pulldown] → BatchDependentViewCreation</td><td>André Rodrigues da Silva</td></tr>
+      <tr><td>icon.png</td><td>create1 [stack] → BatchCreation [pulldown] → BatchWorksetCreation</td><td>André Rodrigues da Silva</td></tr>
+      <tr><td>icon.png</td><td>create1 [stack] → BatchCreation [pulldown] → PipeTypeFromCSV</td><td>André Rodrigues da Silva</td></tr>
+      <tr><td>icon.png</td><td>Ductulator</td><td>GM</td></tr>
+    </tbody></table></div></article>
+  <article class='tool'><div class='tool-head'><img src='docs/assets/tool-icon.svg' alt='icon'><h3>MEP Modify.panel</h3></div>
+    <div class='meta-table-wrap'><table class='meta-table'><thead><tr><th>Icon Name</th><th>Bundle Name</th><th>Author</th></tr></thead><tbody>
+      <tr><td>icon.png</td><td>Split [stack] → SplitPipes</td><td>André Rodrigues da Silva</td></tr>
+      <tr><td>icon.png</td><td>Split [stack] → SplitSelectedPipes</td><td>André Rodrigues da Silva</td></tr>
+      <tr><td>icon.png</td><td>Connect [stack] → ConnectTo</td><td>Cyril Waechter</td></tr>
+      <tr><td>icon.png</td><td>Connect [stack] → DisConnect</td><td>Cyril Waechter</td></tr>
+      <tr><td>icon.png</td><td>Align [stack] → Element3DRotation</td><td>André Rodrigues da Silva</td></tr>
+      <tr><td>icon.png</td><td>Align [stack] → MakeParallel</td><td>Cyril Waechter</td></tr>
+      <tr><td>icon.png</td><td>RemoveDuplicates</td><td>André Rodrigues da Silva</td></tr>
+      <tr><td>icon.png, icon.dark.png</td><td>Color [pulldown] → GreyOutElements</td><td>GM</td></tr>
+      <tr><td>icon.png, icon.dark.png</td><td>Color [pulldown] → GreyOutElements_reset</td><td>GM</td></tr>
+      <tr><td>icon.png</td><td>Other [stack] → FlexFlatten</td><td>Cyril Waechter</td></tr>
+      <tr><td>icon.png</td><td>Other [stack] → Delete [pulldown] → FamilyDelete</td><td>André Rodrigues da Silva</td></tr>
+      <tr><td>icon.png</td><td>Other [stack] → Delete [pulldown] → FamilyTypeDelete</td><td>André Rodrigues da Silva</td></tr>
+      <tr><td>icon.png</td><td>Other [stack] → Delete [pulldown] → ParameterDelete</td><td>Cyril Waechter</td></tr>
+      <tr><td>icon.png</td><td>Other [stack] → Delete [pulldown] → SystemDelete</td><td>André Rodrigues da Silva</td></tr>
+      <tr><td>icon.png</td><td>Other [stack] → Move [pulldown] → MoveLabelToOrigin</td><td>André Rodrigues da Silva</td></tr>
+      <tr><td>icon.png</td><td>Other [stack] → Move [pulldown] → MoveSpaceToRoom</td><td>André Rodrigues da Silva</td></tr>
+      <tr><td>icon.png</td><td>Other [stack] → Move [pulldown] → MoveTitleBlockToOrigin</td><td>André Rodrigues da Silva</td></tr>
+    </tbody></table></div></article>
+  <article class='tool'><div class='tool-head'><img src='docs/assets/tool-icon.svg' alt='icon'><h3>MEP Data.panel</h3></div>
+    <div class='meta-table-wrap'><table class='meta-table'><thead><tr><th>Icon Name</th><th>Bundle Name</th><th>Author</th></tr></thead><tbody>
+      <tr><td>icon.png, icon.dark.png</td><td>ElementChangeLevel</td><td>Cyril Waechter</td></tr>
+      <tr><td>icon.png</td><td>Level and Space [stack] → ElevationUnder</td><td>Cyril Waechter</td></tr>
+      <tr><td>icon.png</td><td>Level and Space [stack] → RoomToSpace</td><td>Cyril Waechter</td></tr>
+      <tr><td>icon.png</td><td>RenumberBySpline</td><td>André Rodrigues da Silva</td></tr>
+      <tr><td>icon.png, icon.dark.png, icon.svg</td><td>MaterialsDB [pulldown] → UpdateMaterials</td><td>Cyril Waechter</td></tr>
+      <tr><td>icon.png</td><td>MaterialsDB [pulldown] → ExportMaterialsGraphics</td><td>Cyril Waechter</td></tr>
+      <tr><td>icon.png</td><td>Linked Parameters [pulldown] → Linked Room Parameter</td><td>André Rodrigues da Silva</td></tr>
+      <tr><td>icon.png</td><td>Linked Parameters [pulldown] → Linked Elements Parameter</td><td>André Rodrigues da Silva</td></tr>
+      <tr><td>icon.png</td><td>Linked Parameters [pulldown] → Linked Type Overlay</td><td>André Rodrigues da Silva</td></tr>
+    </tbody></table></div></article>
+  <article class='tool'><div class='tool-head'><img src='docs/assets/tool-icon.svg' alt='icon'><h3>MEP Manage.panel</h3></div>
+    <div class='meta-table-wrap'><table class='meta-table'><thead><tr><th>Icon Name</th><th>Bundle Name</th><th>Author</th></tr></thead><tbody>
+      <tr><td>icon.png</td><td>FamilyReLoad</td><td>Cyril Waechter</td></tr>
+      <tr><td>icon.png, icon.dark.png</td><td>Copy [pulldown] → CopyProjectUnits</td><td>Cyril Waechter</td></tr>
+      <tr><td>icon.png</td><td>Copy [pulldown] → CopyViewRange</td><td>Cyril Waechter</td></tr>
+      <tr><td>icon.png</td><td>Copy [pulldown] → CopyViewType</td><td>Cyril Waechter</td></tr>
+      <tr><td>icon.png, icon.dark.png</td><td>Parameters [stack] → ManageSharedParameter</td><td>Cyril Waechter</td></tr>
+      <tr><td>icon.png</td><td>Parameters [stack] → ManageDocumentParameters</td><td>Cyril Waechter</td></tr>
+      <tr><td>icon.png</td><td>Parameters [stack] → ParameterTransfer</td><td>GM</td></tr>
+      <tr><td>icon.png, icon.dark.png</td><td>Fluid [pulldown] → FluidCreate</td><td>Cyril Waechter</td></tr>
+      <tr><td>icon.png</td><td>Fluid [pulldown] → ReplaceFluid</td><td>Cyril Waechter</td></tr>
+    </tbody></table></div></article>
+  <article class='tool'><div class='tool-head'><img src='docs/assets/tool-icon.svg' alt='icon'><h3>Audit and Exchange.panel</h3></div>
+    <div class='meta-table-wrap'><table class='meta-table'><thead><tr><th>Icon Name</th><th>Bundle Name</th><th>Author</th></tr></thead><tbody>
+      <tr><td>icon.png, icon.dark.png</td><td>SMART CHECKER</td><td>GM</td></tr>
+      <tr><td>icon.png</td><td>SpaceVsRoom</td><td>Cyril Waechter</td></tr>
+      <tr><td>icon.png</td><td>Exchange [stack] → Excel</td><td>GM</td></tr>
+      <tr><td>icon.png</td><td>Exchange [stack] → MultiIFC</td><td>André Rodrigues da Silva</td></tr>
     </tbody></table></div></article>
   <article class='tool'><div class='tool-head'><img src='docs/assets/tool-icon.svg' alt='icon'><h3>Search.panel</h3></div>
     <div class='meta-table-wrap'><table class='meta-table'><thead><tr><th>Icon Name</th><th>Bundle Name</th><th>Author</th></tr></thead><tbody>
-      <tr><td>icon.png</td><td>Search Tool</td><td>GMoreno</td></tr>
+      <tr><td>icon.png</td><td>Search Tool</td><td>GM</td></tr>
+    </tbody></table></div></article>
+  <article class='tool'><div class='tool-head'><img src='docs/assets/tool-icon.svg' alt='icon'><h3>Refresh.panel</h3></div>
+    <div class='meta-table-wrap'><table class='meta-table'><thead><tr><th>Icon Name</th><th>Bundle Name</th><th>Author</th></tr></thead><tbody>
+      <tr><td>icon.png</td><td>Refresh</td><td>GM</td></tr>
     </tbody></table></div></article>
 </section>
-
-
-</div>
-<script>
-  (function() {
-    var sectionToPanel = {
-      "project": "Project",
-      "mht-sheets": "MHT SHEETS",
-      "documentation": "Documentation",
-      "import": "IMPORT",
-      "mep-check": "MEP Check",
-      "mep-create": "MEP Create",
-      "mep-data": "MEP Data",
-      "mep-design": "MEP Design",
-      "mep-export": "MEP Export",
-      "mep-favorites": "MEP Favorites",
-      "mep-manage": "MEP Manage",
-      "mep-modify": "MEP Modify",
-      "search": "Search",
-      "refresh": "Refresh"
-    };
-
-    var nestedBySection = {
-      "project": ["", "BOUNDS.pulldown/"],
-      "mht-sheets": [""],
-      "documentation": [""],
-      "import": [""],
-      "mep-check": [""],
-      "mep-create": ["", "create1.stack/", "create1.stack/BatchCreation.pulldown/"],
-      "mep-data": ["", "MaterialsDB.pulldown/"],
-      "mep-design": [""],
-      "mep-export": [""],
-      "mep-favorites": [""],
-      "mep-manage": ["", "Copy.pulldown/", "Fluid.pulldown/", "Parameters.stack/"],
-      "mep-modify": ["", "Color.pulldown/", "Connect.stack/", "Other.stack/", "Other.stack/Delete.pulldown/", "Other.stack/Move.pulldown/"],
-      "search": [""],
-      "refresh": [""]
-    };
-
-    var explicitPathByKey = {
-      "project|BOUNDS / HOST": "MEINHARDT.tab/Project.panel/BOUNDS.pulldown/HOST.pushbutton",
-      "project|BOUNDS / LINK": "MEINHARDT.tab/Project.panel/BOUNDS.pulldown/LINK.pushbutton",
-      "project|BOUNDS / S2A": "MEINHARDT.tab/Project.panel/BOUNDS.pulldown/S2A.pushbutton",
-      "documentation|Search Tool": "MEINHARDT.tab/Search.panel/Search Tool.pushbutton"
-    };
-
-    function encodePath(path) {
-      return path.split("/").map(function(seg) {
-        return encodeURIComponent(seg);
-      }).join("/");
-    }
-
-    function tryCandidates(img, candidates) {
-      var idx = 0;
-      function next() {
-        if (idx >= candidates.length) {
-          img.style.display = "none";
-          return;
-        }
-        img.src = encodePath(candidates[idx]);
-        idx += 1;
-      }
-      img.onerror = next;
-      img.onload = function() { img.style.display = "inline-block"; };
-      next();
-    }
-
-    function makeIconSet(basePaths) {
-      var wrap = document.createElement("span");
-      wrap.className = "tool-icons";
-
-      var light = document.createElement("img");
-      light.alt = "icon";
-      var dark = document.createElement("img");
-      dark.alt = "dark icon";
-
-      var lightCandidates = [];
-      var darkCandidates = [];
-      basePaths.forEach(function(base) {
-        lightCandidates.push(base + "/icon.png");
-        darkCandidates.push(base + "/icon.dark.png");
-        darkCandidates.push(base + "/icon.DK.png");
-        darkCandidates.push(base + "/Icon.dark.png");
-      });
-
-      tryCandidates(light, lightCandidates);
-      tryCandidates(dark, darkCandidates);
-
-      wrap.appendChild(light);
-      wrap.appendChild(dark);
-      return wrap;
-    }
-
-    function basePathsFor(sectionId, titleText) {
-      var key = sectionId + "|" + titleText;
-      if (explicitPathByKey[key]) {
-        return [explicitPathByKey[key]];
-      }
-
-      var panel = sectionToPanel[sectionId];
-      if (!panel) {
-        return [];
-      }
-
-      var nests = nestedBySection[sectionId] || [""];
-      var folder = titleText + ".pushbutton";
-      return nests.map(function(n) {
-        return "MEINHARDT.tab/" + panel + ".panel/" + n + folder;
-      });
-    }
-
-    var cards = document.querySelectorAll("section.panel article.tool");
-    cards.forEach(function(card) {
-      var section = card.closest("section.panel");
-      if (!section || section.id === "installation") {
-        return;
-      }
-
-      var head = card.querySelector(".tool-head");
-      var title = head ? head.querySelector("h3") : null;
-      if (!head || !title) {
-        return;
-      }
-
-      var titleText = (title.textContent || "").trim();
-      if (!titleText) {
-        return;
-      }
-
-      var paths = basePathsFor(section.id, titleText);
-      if (!paths.length) {
-        return;
-      }
-
-      var firstImg = head.querySelector("img");
-      if (firstImg) {
-        firstImg.remove();
-      }
-
-      head.insertBefore(makeIconSet(paths), title);
-    });
-  })();
-</script>
-</body>
-</html>
-

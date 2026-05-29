@@ -2,8 +2,9 @@ title:
   fr_fr: MEP Modifier
   en_us: MEP Modify
 layout:
+  - Split
   - Connect
-  - Element3DRotation
-  - MakeParallel
+  - Align
+  - RemoveDuplicates
   - Color
   - Other

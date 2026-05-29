@@ -1,6 +1,6 @@
 # MHTTools pyRevit Extension
 
-Adds an **MHT Tools** tab to pyRevit with the **Project** panel tools copied from GMToolbox.
+Adds a **MEINHARDT** tab to pyRevit with **10 panels** — Project, Sheets & Views, MEP Create, MEP Modify, MEP Data, MEP Manage, Audit & Exchange, Documentation, Search, and Refresh — covering spatial creation, sheet production, MEP modelling, data management, and model QA workflows.
 
 ## Install (teammates)
 
