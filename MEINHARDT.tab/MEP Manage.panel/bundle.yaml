@@ -2,7 +2,13 @@ title:
   en_us: MEP Manage
   fr_fr: MEP Gérer
 layout:
-  - Copy
   - FamilyReLoad
+  - 07 Family Renamer
+  - 09 Family Convention Converter
+  - Callout Riser Renamer
+  - GM Filters by Value
+  - LINKS
+  - LINKVIS
   - Parameters
+  - Copy
   - Fluid

@@ -2,9 +2,11 @@ title: Sheets and Views
 
 layout:
   - SheetGenerator
-  - Sheet Ops
   - FORMAT
+  - RENUMBER_RENAME
+  - AlignViewports
+  - QUICK FORMAT
+  - Hide Grids
   - Views Links Manager
-  - View Tools
   - Plan Link Setup
   - Room Tags

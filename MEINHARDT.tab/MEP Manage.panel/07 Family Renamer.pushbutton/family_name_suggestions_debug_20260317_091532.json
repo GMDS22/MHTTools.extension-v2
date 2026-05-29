@@ -1,0 +1,68 @@
+{
+  "problems": [
+    {
+      "category": "Air Terminals", 
+      "classified_system": "UND", 
+      "suggested": "MHT-ME-AT-DN24", 
+      "reasons": [
+        "missing_system", 
+        "missing_shape"
+      ], 
+      "classified_size": "DN24", 
+      "classified_shape": null, 
+      "classified_fitting": "Diffuser", 
+      "classified_modifier": null, 
+      "type_params_first": [
+        {
+          "params": {
+            "URL": "", 
+            "Classification.OmniClass.23.Description": "", 
+            "Type IFC Predefined Type": "", 
+            "Default Elevation": "0", 
+            "#M-Controls": "", 
+            "Code Name": "", 
+            "Assembly Code": "", 
+            "Classification.OmniClass.22.Number": "", 
+            "MHT_TYPE COMMENT 1": "", 
+            "Classification.OmniClass.21.Number": "", 
+            "OmniClass Number": "23.75.70.21.27.11", 
+            "Edited by": "", 
+            "Identity_Discipline": "", 
+            "OmniClass Title": "Diffusers, Registers, and Grilles", 
+            "Workset": "", 
+            "Export Type to IFC": "", 
+            "Design Option": "", 
+            "Classification.OmniClass.21.Description": "", 
+            "Identity_Copyright": "", 
+            "Type IfcGUID": "2hGfgtJCLEjvJz9mSuRG1j", 
+            "Min Flow": "0", 
+            "Keynote": "", 
+            "Export Type to IFC As": "", 
+            "Max Flow": "0", 
+            "Type Mark": "", 
+            "Cost": "0", 
+            "Family Name": "MHT-ME-AT-1000x1000", 
+            "Manufacturer": "", 
+            "Classification.OmniClass.22.Description": "", 
+            "Classification.MasterFormat.Description": "", 
+            "Spigot_Depth": "150", 
+            "Type Comments": "", 
+            "Description": "", 
+            "Type Image": "", 
+            "Category": "", 
+            "Assembly Description": "", 
+            "Classification.OmniClass.23.Number": "", 
+            "#C-Coordination RCP": "", 
+            "Type Name": "Standard", 
+            "Classification.MasterFormat.Number": "", 
+            "Model": ""
+          }, 
+          "type_name": ""
+        }
+      ], 
+      "family": "MHT-ME-AT-1000x1000", 
+      "instance_params": {}
+    }
+  ], 
+  "generated": "20260317_091532"
+}

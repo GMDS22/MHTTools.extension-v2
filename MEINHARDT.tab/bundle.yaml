@@ -1,7 +1,6 @@
 title: MEINHARDT
 
 layout:
-  - Project
   - Sheets and Views
   - MEP Create
   - MEP Modify
@@ -9,5 +8,4 @@ layout:
   - MEP Manage
   - Audit and Exchange
   - Documentation
-  - Search
   - Refresh

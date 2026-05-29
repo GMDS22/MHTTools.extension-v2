@@ -2,9 +2,11 @@ title:
   fr_fr: MEP Modifier
   en_us: MEP Modify
 layout:
+  - RemoveDuplicates
+  - 08 Selection Filter
   - Split
   - Connect
   - Align
-  - RemoveDuplicates
+  - Color and Legend
   - Color
   - Other
