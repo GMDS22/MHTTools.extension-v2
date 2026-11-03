@@ -55,21 +55,36 @@ def _is_rated_wall(wall):
 
 
 def _wall_type_key(wall):
-    wall_type = None
     try:
-        wall_type = wall.Document.GetElement(wall.GetTypeId())
+        wall_document = wall.Document
     except Exception:
-        wall_type = doc.GetElement(wall.GetTypeId()) if hasattr(wall, "GetTypeId") else None
+        wall_document = doc
+    try:
+        wall_type = wall_document.GetElement(wall.GetTypeId())
+    except Exception:
+        wall_type = None
     if wall_type is None:
         return ""
-    return wall_type.Name
-
-
-def _family_symbol_name(symbol):
     try:
-        return symbol.Family.Name + " : " + symbol.Name
+        name_param = wall_type.get_Parameter(DB.BuiltInParameter.ALL_MODEL_TYPE_NAME)
+        if name_param:
+            value = name_param.AsString() or name_param.AsValueString()
+            if value:
+                return value.strip()
     except Exception:
-        return symbol.Name
+        pass
+    try:
+        value = wall_type.get_Parameter(DB.BuiltInParameter.SYMBOL_NAME_PARAM)
+        if value:
+            value = value.AsString() or value.AsValueString()
+            if value:
+                return value.strip()
+    except Exception:
+        pass
+    try:
+        return str(wall_type.Id.IntegerValue)
+    except Exception:
+        return ""
 
 
 class WallTypeItem(object):
