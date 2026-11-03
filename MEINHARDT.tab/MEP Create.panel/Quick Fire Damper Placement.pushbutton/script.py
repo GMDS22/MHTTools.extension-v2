@@ -2,8 +2,11 @@
 """Quickly place selected duct damper families at selected fire/smoke wall clashes."""
 
 import clr
+import codecs
 import os
 import json
+import time
+import traceback
 
 clr.AddReference("System")
 clr.AddReference("WindowsBase")
@@ -26,6 +29,26 @@ uidoc = revit.uidoc
 logger = script.get_logger()
 
 STATE_PATH = os.path.join(os.path.dirname(doc.PathName) if doc and doc.PathName else os.path.expanduser("~"), "MHT_QuickDamperState.json") if doc else None
+LOG_DIR = os.path.join(os.environ.get("LOCALAPPDATA", os.path.expanduser("~")), "MHTTools", "Logs")
+LOG_PATH = os.path.join(LOG_DIR, "QuickFireDamper.log")
+
+
+def _write_log(message):
+    try:
+        if not os.path.isdir(LOG_DIR):
+            os.makedirs(LOG_DIR)
+        try:
+            text = unicode(message)
+        except NameError:
+            text = str(message)
+        with codecs.open(LOG_PATH, "a", "utf-8") as handle:
+            handle.write(u"{} {}\n".format(time.strftime("%Y-%m-%d %H:%M:%S"), text))
+    except Exception:
+        pass
+
+
+def _write_exception(context):
+    _write_log("{}\n{}".format(context, traceback.format_exc()))
 
 
 def _element_id(element):
@@ -188,6 +211,7 @@ class SymbolItem(object):
 class QuickDamperWindow(forms.WPFWindow):
     def __init__(self):
         forms.WPFWindow.__init__(self, os.path.join(THIS_DIR, "QuickFireDamper.xaml"))
+        _write_log("Window initialized for document '{}'".format(doc.Title if doc else "<none>"))
         self.wall_types = []
         self.families = []
         self._wall_records = []
@@ -202,6 +226,7 @@ class QuickDamperWindow(forms.WPFWindow):
         self._load_families()
         self._refresh_wall_types()
         self._restore_state()
+        _write_log("Initial UI population complete: {} families, {} rated wall types".format(len(self.families), len(self.wall_types)))
 
     def _cancel(self, sender, args):
         self.cancelled = True
@@ -223,6 +248,9 @@ class QuickDamperWindow(forms.WPFWindow):
         damper_families.sort(key=lambda f: _safe_family_name(f).lower())
         self.families = damper_families
         self.family_box.ItemsSource = [FamilyItem(f) for f in damper_families]
+        _write_log("Loaded {} duct accessory families".format(len(damper_families)))
+        if not damper_families:
+            _write_log("WARNING: no Duct Accessory families were found in the active document")
         if damper_families:
             self.family_box.SelectedIndex = 0
 
@@ -239,12 +267,17 @@ class QuickDamperWindow(forms.WPFWindow):
                 symbols.append(SymbolItem(symbol))
         symbols.sort(key=lambda s: s.Name.lower())
         self.symbol_box.ItemsSource = symbols
+        _write_log("Family '{}' has {} symbols".format(selected.Name, len(symbols)))
+        if not symbols:
+            _write_log("WARNING: selected family has no loadable symbols")
         if symbols:
             self.symbol_box.SelectedIndex = 0
 
     def _linked_architecture_walls(self):
         records = []
-        for link in FilteredElementCollector(doc).OfClass(DB.RevitLinkInstance).ToElements():
+        links = FilteredElementCollector(doc).OfClass(DB.RevitLinkInstance).ToElements()
+        _write_log("Checking {} Revit link instances for walls".format(len(links)))
+        for link in links:
             try:
                 if link.IsHidden(doc.ActiveView):
                     continue
@@ -256,7 +289,9 @@ class QuickDamperWindow(forms.WPFWindow):
                 for wall in walls:
                     records.append((wall, transform, linked_doc.Title))
             except Exception:
+                _write_exception("Linked wall collection failed for link '{}'".format(getattr(link, "Name", "<unknown>")))
                 logger.debug("Link wall collection skipped")
+        _write_log("Collected {} walls from loaded, visible links".format(len(records)))
         return records
 
     def _refresh_wall_types(self):
@@ -266,8 +301,10 @@ class QuickDamperWindow(forms.WPFWindow):
         self._wall_records = []
         view_id = doc.ActiveView.Id
         host_walls = FilteredElementCollector(doc, view_id).OfCategory(BuiltInCategory.OST_Walls).WhereElementIsNotElementType().ToElements()
+        host_rated = 0
         for wall in host_walls:
             if _is_rated_wall(wall):
+                host_rated += 1
                 key = _wall_type_key(wall)
                 if key:
                     keys[key] = None
@@ -291,6 +328,9 @@ class QuickDamperWindow(forms.WPFWindow):
         self.wall_types = [WallTypeItem(key, source_names[key], descriptions.get(key, ""), key in remembered) for key in sorted(keys, key=lambda k: k.lower())]
         self.wall_types_box.ItemsSource = self.wall_types
         self.status_text.Text = "{} rated wall types in active view".format(len(self.wall_types))
+        _write_log("Wall scan: {} host walls / {} rated; {} distinct rated wall types; {} matching wall records".format(len(host_walls), host_rated, len(self.wall_types), len(self._wall_records)))
+        if not self.wall_types:
+            _write_log("WARNING: no rated walls found; check NWB_Material/NWB_MATERIAL values and active view visibility")
 
     def _state_key(self):
         title = doc.Title.replace("/", "-").replace("\\", "-") if doc else "NoDocument"
@@ -359,7 +399,9 @@ class QuickDamperWindow(forms.WPFWindow):
                         if isinstance(solid, DB.Solid) and solid.Volume > 1e-9:
                             result.append(solid)
         except Exception:
-            pass
+            _write_exception("Geometry extraction failed for element {}".format(_element_id(element)))
+        if not result:
+            _write_log("WARNING: element {} returned no solid geometry".format(_element_id(element)))
         return result
 
     def _bounds_overlap(self, a, b, tolerance=0.05):
@@ -375,21 +417,27 @@ class QuickDamperWindow(forms.WPFWindow):
         duct_solids = self._geometry_solids(duct)
         location = getattr(duct.Location, "Curve", None)
         if not duct_solids or location is None:
+            _write_log("Duct {} cannot be tested: solids={}, curve_location={}".format(_element_id(duct), len(duct_solids), location is not None))
             return None
+        tested_walls = 0
+        bounds_matches = 0
         for wall, transform, source in self._wall_records:
             key = _wall_type_key(wall)
             if key not in selected_types or not _is_rated_wall(wall):
                 continue
+            tested_walls += 1
             for wall_solid in self._geometry_solids(wall):
                 transformed = wall_solid
                 if transform is not None and transform != Transform.Identity:
                     try:
                         transformed = SolidUtils.CreateTransformed(wall_solid, transform)
                     except Exception:
+                        _write_exception("Could not transform linked wall {} from '{}'".format(_element_id(wall), source))
                         continue
                 for duct_solid in duct_solids:
                     if not self._bounds_overlap(duct_solid.GetBoundingBox(), transformed.GetBoundingBox(), 0.05):
                         continue
+                    bounds_matches += 1
                     try:
                         if duct_solid.Intersect(transformed) != DB.SetComparisonResult.Disjoint:
                             wall_box = transformed.GetBoundingBox()
@@ -403,20 +451,30 @@ class QuickDamperWindow(forms.WPFWindow):
                             direction = direction.Normalize()
                             parameter = center.Subtract(start).DotProduct(direction)
                             parameter = max(0.0, min(length, parameter))
-                            return start.Add(direction.Multiply(parameter))
+                            point = start.Add(direction.Multiply(parameter))
+                            _write_log("CLASH: duct {} with wall type '{}' from '{}' at ({:.3f}, {:.3f}, {:.3f})".format(_element_id(duct), key, source, point.X, point.Y, point.Z))
+                            return point
                     except Exception:
+                        _write_exception("Solid intersection test failed for duct {} and wall {}".format(_element_id(duct), _element_id(wall)))
                         continue
+        _write_log("Duct {}: no clash; selected rated walls tested={}, bounding-box candidates={}".format(_element_id(duct), tested_walls, bounds_matches))
         return None
 
     def _place(self, sender, args):
         if self.family_box.SelectedItem is None or self.symbol_box.SelectedItem is None:
+            _write_log("Placement aborted: no family or symbol selected")
             forms.alert("Select a damper family and symbol.", exitscript=False)
             return
         selected_types = set(item.Key for item in (self.wall_types_box.ItemsSource or []) if getattr(item, "IsChecked", False))
         if not selected_types:
+            _write_log("Placement aborted: no rated wall type checked")
             forms.alert("Select at least one wall type.", exitscript=False)
             return
         symbol = self.symbol_box.SelectedItem.Symbol
+        _write_log("=" * 72)
+        _write_log("PLACEMENT START: document='{}', view='{}', family='{}', type='{}'".format(doc.Title, doc.ActiveView.Name, self.family_box.SelectedItem.Name, self.symbol_box.SelectedItem.Name))
+        _write_log("Selected wall type keys: {}".format(", ".join(sorted(selected_types))))
+        _write_log("Candidate wall records: {}; selected symbol active={}".format(len(self._wall_records), symbol.IsActive))
         self._save_state()
         self._placement_running = True
         self.cancelled = False
@@ -439,10 +497,15 @@ class QuickDamperWindow(forms.WPFWindow):
         transaction = Transaction(doc, "Quick place fire smoke dampers")
         try:
             transaction.Start()
+            _write_log("Revit transaction started")
             if not symbol.IsActive:
                 symbol.Activate()
+                _write_log("Activated family symbol {}".format(_element_id(symbol)))
             ducts = list(FilteredElementCollector(doc).OfCategory(BuiltInCategory.OST_DuctCurves).WhereElementIsNotElementType().ToElements())
             total = len(ducts)
+            _write_log("Found {} host duct curves to inspect".format(total))
+            if not total:
+                _write_log("WARNING: no host duct curves found in the active document")
             for index, duct in enumerate(ducts, 1):
                 if self.cancelled:
                     break
@@ -457,13 +520,17 @@ class QuickDamperWindow(forms.WPFWindow):
                     continue
                 if any(location.DistanceTo(point) <= 0.164042 for point in existing_points):
                     duplicate += 1
+                    _write_log("DUPLICATE: duct {} clash point is within 50 mm of an existing duct accessory".format(_element_id(duct)))
                     continue
                 try:
                     try:
                         instance = doc.Create.NewFamilyInstance(location, symbol, duct, RevitStructuralType.NonStructural)
+                        _write_log("Placed on duct host using duct-hosted overload; duct={}, instance={}".format(_element_id(duct), _element_id(instance) if instance else "<none>"))
                     except Exception:
+                        _write_exception("Duct-hosted NewFamilyInstance overload failed for duct {} and symbol {}".format(_element_id(duct), _element_id(symbol)))
                         level = doc.GetElement(duct.LevelId)
                         instance = doc.Create.NewFamilyInstance(location, symbol, duct, level, RevitStructuralType.NonStructural)
+                        _write_log("Placed using level fallback overload; duct={}, instance={}".format(_element_id(duct), _element_id(instance) if instance else "<none>"))
                     if instance:
                         placed += 1
                         placed_elements.append(instance.Id)
@@ -473,17 +540,21 @@ class QuickDamperWindow(forms.WPFWindow):
                         skipped += 1
                 except Exception as exc:
                     skipped += 1
+                    _write_exception("All placement overloads failed for duct {} and symbol {}: {}".format(_element_id(duct), _element_id(symbol), exc))
                     if len(placement_errors) < 3:
-                        placement_errors.append(str(exc))
+                        placement_errors.append("Duct {}: {}".format(_element_id(duct), str(exc)))
             transaction.Commit()
+            _write_log("Revit transaction committed")
         except Exception as exc:
+            _write_exception("Placement run aborted; transaction/model operation failed: {}".format(exc))
             if transaction.HasStarted():
                 transaction.RollBack()
+                _write_log("Revit transaction rolled back")
             self._placement_running = False
             self.place_button.IsEnabled = True
             self.cancel_button.IsEnabled = True
             self.progress_text.Text = "Failed"
-            forms.alert("Damper placement failed: {}".format(exc), exitscript=False)
+            forms.alert("Damper placement failed: {}\n\nFull details saved to:\n{}".format(exc, LOG_PATH), exitscript=False)
             return
         finally_state = "Cancelled" if self.cancelled else "Completed"
         self.progress_text.Text = finally_state
@@ -497,6 +568,8 @@ class QuickDamperWindow(forms.WPFWindow):
         summary = "{}: placed {} dampers. Duplicate {}. Skipped {} incompatible ducts.".format(finally_state, placed, duplicate, skipped)
         if placement_errors:
             summary += "\nFirst placement error: {}".format(placement_errors[0])
+        _write_log("PLACEMENT SUMMARY: {}; errors captured={}".format(summary.replace("\n", " | "), len(placement_errors)))
+        summary += "\n\nFull diagnostic log:\n{}".format(LOG_PATH)
         forms.alert(summary, exitscript=False)
         self.Close()
 
@@ -518,5 +591,11 @@ class QuickDamperWindow(forms.WPFWindow):
 if not doc:
     forms.alert("This tool requires an active Revit project.", exitscript=True)
 
-window = QuickDamperWindow()
-window.ShowDialog()
+_write_log("=" * 72)
+_write_log("SCRIPT INVOCATION: document='{}'; log='{}'".format(doc.Title if doc else "<none>", LOG_PATH))
+try:
+    window = QuickDamperWindow()
+    window.ShowDialog()
+except Exception as exc:
+    _write_exception("Unhandled tool initialization/window exception: {}".format(exc))
+    forms.alert("Quick Fire Damper failed to start: {}\n\nFull details saved to:\n{}".format(exc, LOG_PATH), exitscript=False)
