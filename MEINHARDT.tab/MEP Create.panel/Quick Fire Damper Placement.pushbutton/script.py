@@ -193,6 +193,7 @@ class QuickDamperWindow(forms.WPFWindow):
         self.cancelled = False
         self._placement_running = False
         self.cancel_button.Click += self._cancel
+        self.place_button.Click += self._place
         self.family_box.SelectionChanged += self._family_changed
         self.select_all_button.Click += lambda s, a: [setattr(item, "IsChecked", True) for item in (self.wall_types_box.ItemsSource or [])]
         self.clear_button.Click += lambda s, a: [setattr(item, "IsChecked", False) for item in (self.wall_types_box.ItemsSource or [])]
@@ -415,13 +416,6 @@ class QuickDamperWindow(forms.WPFWindow):
             forms.alert("Select at least one wall type.", exitscript=False)
             return
         symbol = self.symbol_box.SelectedItem.Symbol
-        if not symbol.IsActive:
-            try:
-                symbol.Activate()
-            except Exception as exc:
-                forms.alert("Could not activate damper symbol: {}".format(exc), exitscript=False)
-                return
-
         self._save_state()
         self._placement_running = True
         self.cancelled = False
@@ -443,6 +437,8 @@ class QuickDamperWindow(forms.WPFWindow):
         transaction = Transaction(doc, "Quick place fire smoke dampers")
         try:
             transaction.Start()
+            if not symbol.IsActive:
+                symbol.Activate()
             ducts = list(FilteredElementCollector(doc).OfCategory(BuiltInCategory.OST_DuctCurves).WhereElementIsNotElementType().ToElements())
             total = len(ducts)
             for index, duct in enumerate(ducts, 1):
@@ -479,6 +475,10 @@ class QuickDamperWindow(forms.WPFWindow):
         except Exception as exc:
             if transaction.HasStarted():
                 transaction.RollBack()
+            self._placement_running = False
+            self.place_button.IsEnabled = True
+            self.cancel_button.IsEnabled = True
+            self.progress_text.Text = "Failed"
             forms.alert("Damper placement failed: {}".format(exc), exitscript=False)
             return
         finally_state = "Cancelled" if self.cancelled else "Completed"
