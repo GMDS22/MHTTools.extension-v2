@@ -124,6 +124,38 @@ def _wall_type_description(wall_type):
     return ""
 
 
+def _safe_element_name(element, fallback=""):
+    try:
+        value = element.Name
+        if value:
+            return str(value)
+    except Exception:
+        pass
+    for param_name in ("SYMBOL_NAME_PARAM", "ALL_MODEL_TYPE_NAME", "Family Name"):
+        try:
+            param = element.get_Parameter(getattr(DB.BuiltInParameter, param_name)) if hasattr(DB.BuiltInParameter, param_name) else element.LookupParameter(param_name)
+            if param:
+                value = param.AsString() or param.AsValueString()
+                if value:
+                    return str(value).strip()
+        except Exception:
+            pass
+    try:
+        return str(element.Id.IntegerValue)
+    except Exception:
+        return fallback
+
+
+def _safe_family_name(family):
+    try:
+        value = family.Name
+        if value:
+            return str(value)
+    except Exception:
+        pass
+    return _safe_element_name(family, "Unnamed Family")
+
+
 class WallTypeItem(object):
     def __init__(self, key, source, description="", is_checked=False):
         self.Key = key
@@ -141,13 +173,13 @@ class WallTypeItem(object):
 class FamilyItem(object):
     def __init__(self, family):
         self.Family = family
-        self.Name = family.Name
+        self.Name = _safe_family_name(family)
 
 
 class SymbolItem(object):
     def __init__(self, symbol):
         self.Symbol = symbol
-        self.Name = symbol.Name
+        self.Name = _safe_element_name(symbol, "Unnamed Type")
 
 
 class QuickDamperWindow(forms.WPFWindow):
@@ -180,7 +212,7 @@ class QuickDamperWindow(forms.WPFWindow):
                     damper_families.append(family)
             except Exception:
                 pass
-        damper_families.sort(key=lambda f: f.Name.lower())
+        damper_families.sort(key=lambda f: _safe_family_name(f).lower())
         self.families = damper_families
         self.family_box.ItemsSource = [FamilyItem(f) for f in damper_families]
         if damper_families:
@@ -197,7 +229,7 @@ class QuickDamperWindow(forms.WPFWindow):
             symbol = doc.GetElement(symbol_id)
             if symbol:
                 symbols.append(SymbolItem(symbol))
-        symbols.sort(key=lambda s: s.Symbol.Name.lower())
+        symbols.sort(key=lambda s: s.Name.lower())
         self.symbol_box.ItemsSource = symbols
         if symbols:
             self.symbol_box.SelectedIndex = 0
@@ -285,7 +317,7 @@ class QuickDamperWindow(forms.WPFWindow):
                     break
         if state.get("symbol"):
             for index, symbol in enumerate(self.symbol_box.ItemsSource or []):
-                if symbol.Symbol.Name == state["symbol"]:
+                if symbol.Name == state["symbol"]:
                     self.symbol_box.SelectedIndex = index
                     break
         selected_keys = set(state.get("wall_types", []))
