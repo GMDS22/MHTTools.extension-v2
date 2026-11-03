@@ -16,6 +16,8 @@ from Autodesk.Revit.DB import (
 )
 from Autodesk.Revit.DB.Structure import StructuralType as RevitStructuralType
 from pyrevit import DB, forms, revit, script
+from System import Action
+from System.Windows.Threading import DispatcherPriority
 
 TOOL_VERSION = "1.0"
 THIS_DIR = os.path.dirname(__file__)
@@ -189,19 +191,23 @@ class QuickDamperWindow(forms.WPFWindow):
         self.families = []
         self._wall_records = []
         self.cancelled = False
+        self._placement_running = False
+        self.cancel_button.Click += self._cancel
         self.family_box.SelectionChanged += self._family_changed
         self.select_all_button.Click += lambda s, a: [setattr(item, "IsChecked", True) for item in (self.wall_types_box.ItemsSource or [])]
         self.clear_button.Click += lambda s, a: [setattr(item, "IsChecked", False) for item in (self.wall_types_box.ItemsSource or [])]
         self.refresh_button.Click += lambda s, a: self._refresh_wall_types()
-        self.cancel_button.Click += self._cancel
-        self.place_button.Click += self._place
         self._load_families()
         self._refresh_wall_types()
         self._restore_state()
 
     def _cancel(self, sender, args):
         self.cancelled = True
-        self.Close()
+        if not getattr(self, "_placement_running", False):
+            self.Close()
+        else:
+            self.progress_text.Text = "Cancelling... completed items will be kept"
+            self.cancel_button.IsEnabled = False
 
     def _load_families(self):
         damper_families = []
@@ -417,6 +423,12 @@ class QuickDamperWindow(forms.WPFWindow):
                 return
 
         self._save_state()
+        self._placement_running = True
+        self.cancelled = False
+        self.cancel_button.IsEnabled = True
+        self.place_button.IsEnabled = False
+        placed_elements = []
+        paired_wall_elements = []
         placed = 0
         skipped = 0
         duplicate = 0
@@ -432,9 +444,15 @@ class QuickDamperWindow(forms.WPFWindow):
         try:
             transaction.Start()
             ducts = list(FilteredElementCollector(doc).OfCategory(BuiltInCategory.OST_DuctCurves).WhereElementIsNotElementType().ToElements())
-            for duct in ducts:
+            total = len(ducts)
+            for index, duct in enumerate(ducts, 1):
                 if self.cancelled:
                     break
+                if index % 10 == 0 or index == total:
+                    percent = int(float(index) * 100.0 / float(total)) if total else 100
+                    self.progress_bar.Value = percent
+                    self.progress_text.Text = "{} / {} ducts".format(index, total)
+                    self._pump_ui()
                 location = self._clash_point(duct, selected_types)
                 if location is None:
                     skipped += 1
@@ -450,6 +468,8 @@ class QuickDamperWindow(forms.WPFWindow):
                         instance = doc.Create.NewFamilyInstance(location, symbol, duct, level, RevitStructuralType.NonStructural)
                     if instance:
                         placed += 1
+                        placed_elements.append(instance.Id)
+                        paired_wall_elements.append(duct.Id)
                         existing_points.append(location)
                     else:
                         skipped += 1
@@ -461,8 +481,31 @@ class QuickDamperWindow(forms.WPFWindow):
                 transaction.RollBack()
             forms.alert("Damper placement failed: {}".format(exc), exitscript=False)
             return
-        forms.alert("Placed {} dampers. Duplicate {}. Skipped {} incompatible ducts.".format(placed, duplicate, skipped), exitscript=False)
+        finally_state = "Cancelled" if self.cancelled else "Completed"
+        self.progress_text.Text = finally_state
+        self.progress_bar.Value = 100 if not self.cancelled else self.progress_bar.Value
+        self._placement_running = False
+        self.place_button.IsEnabled = True
+        self.cancel_button.IsEnabled = True
+        if bool(self.isolate_box.IsChecked) and placed_elements:
+            ids = list(placed_elements) + list(paired_wall_elements)
+            self._isolate_placed(ids)
+        forms.alert("{}: placed {} dampers. Duplicate {}. Skipped {} incompatible ducts.".format(finally_state, placed, duplicate, skipped), exitscript=False)
         self.Close()
+
+    def _pump_ui(self):
+        try:
+            self.Dispatcher.Invoke(Action(lambda: None), DispatcherPriority.Background)
+        except Exception:
+            pass
+
+    def _isolate_placed(self, element_ids):
+        if not element_ids:
+            return
+        try:
+            doc.ActiveView.IsolateElementsTemporary(list(element_ids))
+        except Exception as exc:
+            logger.debug("Temporary isolation unavailable: {}".format(exc))
 
 
 if not doc:
