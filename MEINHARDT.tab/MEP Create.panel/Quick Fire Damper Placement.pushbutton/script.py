@@ -39,7 +39,8 @@ def _param_text(element, name):
     try:
         param = element.LookupParameter(name)
         if not param:
-            element_type = doc.GetElement(element.GetTypeId()) if hasattr(element, "GetTypeId") else None
+            element_document = getattr(element, "Document", None) or doc
+            element_type = element_document.GetElement(element.GetTypeId()) if hasattr(element, "GetTypeId") else None
             param = element_type.LookupParameter(name) if element_type else None
         if param:
             value = param.AsValueString() or param.AsString()
@@ -426,6 +427,7 @@ class QuickDamperWindow(forms.WPFWindow):
         placed = 0
         skipped = 0
         duplicate = 0
+        placement_errors = []
         existing_points = []
         for accessory in FilteredElementCollector(doc).OfCategory(BuiltInCategory.OST_DuctAccessory).WhereElementIsNotElementType().ToElements():
             try:
@@ -469,8 +471,10 @@ class QuickDamperWindow(forms.WPFWindow):
                         existing_points.append(location)
                     else:
                         skipped += 1
-                except Exception:
+                except Exception as exc:
                     skipped += 1
+                    if len(placement_errors) < 3:
+                        placement_errors.append(str(exc))
             transaction.Commit()
         except Exception as exc:
             if transaction.HasStarted():
@@ -490,7 +494,10 @@ class QuickDamperWindow(forms.WPFWindow):
         if bool(self.isolate_box.IsChecked) and placed_elements:
             ids = list(placed_elements) + list(paired_wall_elements)
             self._isolate_placed(ids)
-        forms.alert("{}: placed {} dampers. Duplicate {}. Skipped {} incompatible ducts.".format(finally_state, placed, duplicate, skipped), exitscript=False)
+        summary = "{}: placed {} dampers. Duplicate {}. Skipped {} incompatible ducts.".format(finally_state, placed, duplicate, skipped)
+        if placement_errors:
+            summary += "\nFirst placement error: {}".format(placement_errors[0])
+        forms.alert(summary, exitscript=False)
         self.Close()
 
     def _pump_ui(self):
