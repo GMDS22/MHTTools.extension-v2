@@ -1,7 +1,8 @@
-title:
+﻿title:
   fr_fr: MEP Créer
   en_us: MEP Create
 layout:
   - Pipe Tools
   - Design Tools
   - Batch Create
+  - Quick Fire Damper Placement
