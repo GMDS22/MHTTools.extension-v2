@@ -87,12 +87,55 @@ def _wall_type_key(wall):
         return ""
 
 
+def _family_category_id(family):
+    try:
+        category_id = family.FamilyCategoryId
+        return category_id.IntegerValue
+    except Exception:
+        pass
+    try:
+        return family.FamilyCategory.Id.IntegerValue
+    except Exception:
+        return -1
+
+
+def _wall_type_description(wall_type):
+    if wall_type is None:
+        return ""
+    for built_in_name in ("ALL_MODEL_DESCRIPTION", "ALL_MODEL_TYPE_COMMENTS"):
+        try:
+            built_in = getattr(DB.BuiltInParameter, built_in_name)
+            param = wall_type.get_Parameter(built_in)
+            if param:
+                value = param.AsString() or param.AsValueString()
+                if value and value.strip():
+                    return value.strip()
+        except Exception:
+            pass
+    for param_name in ("Description", "Type Comments", "Comments"):
+        try:
+            param = wall_type.LookupParameter(param_name)
+            if param:
+                value = param.AsString() or param.AsValueString()
+                if value and value.strip():
+                    return value.strip()
+        except Exception:
+            pass
+    return ""
+
+
 class WallTypeItem(object):
-    def __init__(self, key, source, is_checked=False):
+    def __init__(self, key, source, description="", is_checked=False):
         self.Key = key
         self.Source = source
+        self.Description = description
         self.IsChecked = is_checked
-        self.DisplayName = key + (" (linked)" if source == "linked" else "")
+        label = key
+        if description:
+            label += " - " + description
+        if source == "linked":
+            label += " (linked)"
+        self.DisplayName = label
 
 
 class FamilyItem(object):
@@ -133,14 +176,15 @@ class QuickDamperWindow(forms.WPFWindow):
         collector = FilteredElementCollector(doc).OfClass(DB.Family)
         for family in collector:
             try:
-                family_category = family.FamilyCategory
-                if family_category and family_category.Id.IntegerValue == int(BuiltInCategory.OST_DuctAccessory):
+                if _family_category_id(family) == int(BuiltInCategory.OST_DuctAccessory):
                     damper_families.append(family)
             except Exception:
                 pass
         damper_families.sort(key=lambda f: f.Name.lower())
         self.families = damper_families
         self.family_box.ItemsSource = [FamilyItem(f) for f in damper_families]
+        if damper_families:
+            self.family_box.SelectedIndex = 0
 
     def _family_changed(self, sender, args):
         selected = self.family_box.SelectedItem
@@ -178,6 +222,7 @@ class QuickDamperWindow(forms.WPFWindow):
     def _refresh_wall_types(self):
         keys = {}
         source_names = {}
+        descriptions = {}
         self._wall_records = []
         view_id = doc.ActiveView.Id
         host_walls = FilteredElementCollector(doc, view_id).OfCategory(BuiltInCategory.OST_Walls).WhereElementIsNotElementType().ToElements()
@@ -187,6 +232,7 @@ class QuickDamperWindow(forms.WPFWindow):
                 if key:
                     keys[key] = None
                     source_names[key] = "host"
+                    descriptions[key] = _wall_type_description(wall)
                     self._wall_records.append((wall, Transform.Identity, doc.Title))
 
         for wall, transform, source_name in self._linked_architecture_walls():
@@ -195,8 +241,14 @@ class QuickDamperWindow(forms.WPFWindow):
                 if key:
                     keys[key] = None
                     source_names[key] = "linked"
+                    try:
+                        wall_type = wall.Document.GetElement(wall.GetTypeId())
+                    except Exception:
+                        wall_type = None
+                    descriptions[key] = _wall_type_description(wall_type)
                     self._wall_records.append((wall, transform, source_name))
-        self.wall_types = [WallTypeItem(key, source_names[key], key in set(self._load_state().get(doc.Title if doc else "document", {}).get("wall_types", []))) for key in sorted(keys, key=lambda k: k.lower())]
+        remembered = set(self._load_state().get(doc.Title if doc else "document", {}).get("wall_types", []))
+        self.wall_types = [WallTypeItem(key, source_names[key], descriptions.get(key, ""), key in remembered) for key in sorted(keys, key=lambda k: k.lower())]
         self.wall_types_box.ItemsSource = self.wall_types
         self.status_text.Text = "{} rated wall types in active view".format(len(self.wall_types))
 
@@ -359,8 +411,11 @@ class QuickDamperWindow(forms.WPFWindow):
                     duplicate += 1
                     continue
                 try:
-                    level = doc.GetElement(duct.LevelId)
-                    instance = doc.Create.NewFamilyInstance(location, symbol, duct, level, RevitStructuralType.NonStructural)
+                    try:
+                        instance = doc.Create.NewFamilyInstance(location, symbol, duct, RevitStructuralType.NonStructural)
+                    except Exception:
+                        level = doc.GetElement(duct.LevelId)
+                        instance = doc.Create.NewFamilyInstance(location, symbol, duct, level, RevitStructuralType.NonStructural)
                     if instance:
                         placed += 1
                         existing_points.append(location)
