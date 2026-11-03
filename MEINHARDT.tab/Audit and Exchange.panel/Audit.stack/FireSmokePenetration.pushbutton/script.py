@@ -17,6 +17,9 @@ clr.AddReference("WindowsBase")
 clr.AddReference("PresentationCore")
 clr.AddReference("PresentationFramework")
 
+from System import Action
+from System.Windows.Threading import DispatcherPriority
+
 from Autodesk.Revit.DB import (
     BuiltInCategory, ElementId, FilteredElementCollector, FamilySymbol,
     Options, SolidUtils, StorageType, Transform, Wall
@@ -157,6 +160,8 @@ class DetectorWindow(forms.WPFWindow):
         forms.WPFWindow.__init__(self, os.path.join(THIS_DIR, "FireSmokePenetration.xaml"))
         self.results = []
         self.findings = []
+        self._solid_cache = {}
+        self._analysis_running = False
         self.close_button.Click += self.close_click
         self.analyze_button.Click += self.analyze_click
         self.export_button.Click += self.export_click
@@ -177,9 +182,20 @@ class DetectorWindow(forms.WPFWindow):
         except Exception:
             return "active model"
 
+    def _pump_ui(self):
+        try:
+            self.Dispatcher.Invoke(Action(lambda: None), DispatcherPriority.Background)
+        except Exception:
+            pass
+
     def analyze_click(self, sender, args):
+        if getattr(self, "_analysis_running", False):
+            return
+        self._analysis_running = True
+        self.analyze_button.IsEnabled = False
         start = time.time()
-        self.results_box.Text = "Analyzing..."
+        self.results_box.Text = "Collecting model elements..."
+        self._pump_ui()
         try:
             scope = "active view" if "view" in self._selected_scope() else "active model"
             include_links = bool(self.include_links_box.IsChecked)
@@ -194,7 +210,8 @@ class DetectorWindow(forms.WPFWindow):
             pairs = 0
             verified = []
             if not missing_config:
-                for wall_item in walls:
+                wall_count = len(walls)
+                for wall_index, wall_item in enumerate(walls, 1):
                     wall = wall_item["element"]
                     classification, fire_text, smoke_text = _wall_class(wall, fire_name, smoke_name, combined_name)
                     wall_item.update(classification=classification, fire_text=fire_text, smoke_text=smoke_text)
@@ -202,13 +219,16 @@ class DetectorWindow(forms.WPFWindow):
                         continue
                     for duct in ducts:
                         pairs += 1
+                        if pairs % 250 == 0:
+                            self.results_box.Text = "Checking wall {} of {} | {} candidates".format(wall_index, wall_count, pairs)
+                            self._pump_ui()
                         if self._confirm_intersection(wall_item, duct, tolerance_ft):
                             verified.append(self._finding(wall_item, duct, classification, fire_text, smoke_text))
             self.findings = verified
             elapsed = time.time() - start
             lines = [
-                "MHT Fire & Smoke Penetration Detector {}".format(TOOL_VERSION),
-                "Result: {} verified candidate penetrations".format(len(verified)),
+                "MHT DUCT/WALL CLASH DETECTION {}".format(TOOL_VERSION),
+                "Result: {} verified clashes".format(len(verified)),
                 "Walls considered: {}".format(len(walls)),
                 "Eligible ducts: {}".format(len(ducts)),
                 "Candidate pairs evaluated: {}".format(pairs),
@@ -221,6 +241,10 @@ class DetectorWindow(forms.WPFWindow):
         except Exception as exc:
             logger.error(traceback.format_exc())
             self.results_box.Text = "Analysis failed:\n{}".format(exc)
+        finally:
+            self._solid_cache.clear()
+            self._analysis_running = False
+            self.analyze_button.IsEnabled = True
 
     def _collect(self, scope, include_links):
         walls = []
@@ -260,8 +284,8 @@ class DetectorWindow(forms.WPFWindow):
 
     def _confirm_intersection(self, wall_item, duct, tolerance_ft):
         try:
-            duct_solids = _solids(duct)
-            wall_solids = _solids(wall_item["element"])
+            duct_solids = self._cached_solids(duct)
+            wall_solids = self._cached_solids(wall_item["element"])
             if not duct_solids or not wall_solids:
                 return False
             transform = wall_item["transform"]
@@ -270,12 +294,10 @@ class DetectorWindow(forms.WPFWindow):
                     candidate = wall_solid
                     if transform is not None and transform != Transform.Identity:
                         candidate = SolidUtils.CreateTransformed(wall_solid, transform)
-                    intersection = duct_solid.Intersect(candidate)
-                    if intersection == DB.SetComparisonResult.Disjoint:
+                    if not self._solid_bounds_overlap(duct_solid, candidate, tolerance_ft):
                         continue
-                    if intersection == DB.SetComparisonResult.Subset or intersection == DB.SetComparisonResult.Equal:
-                        return True
-                    if intersection == DB.SetComparisonResult.Overlap:
+                    intersection = duct_solid.Intersect(candidate)
+                    if intersection != DB.SetComparisonResult.Disjoint:
                         return True
         except Exception as exc:
             logger.debug("Intersection check skipped: {}".format(exc))
