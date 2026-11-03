@@ -15,10 +15,11 @@ clr.AddReference("PresentationFramework")
 
 from Autodesk.Revit.DB import (
     BuiltInCategory, FilteredElementCollector, Transaction,
-    Options, SolidUtils, Transform
+    Options, SolidCurveIntersectionMode, SolidCurveIntersectionOptions, SolidUtils, Transform
 )
 from Autodesk.Revit.DB.Structure import StructuralType as RevitStructuralType
 from pyrevit import DB, forms, revit, script
+from pyrevitmep.event import CustomizableEvent
 from System import Action
 from System.Collections.Generic import List
 from System.Windows.Threading import DispatcherPriority
@@ -233,18 +234,25 @@ class SymbolItem(object):
 class QuickDamperWindow(forms.WPFWindow):
     def __init__(self):
         forms.WPFWindow.__init__(self, os.path.join(THIS_DIR, "QuickFireDamper.xaml"))
+        self._revit_event = CustomizableEvent()
+        self._utility_event = CustomizableEvent()
+        self._utility_action_running = False
+        self._revit_event.logger = logger
+        self._utility_event.logger = logger
         _write_log("Window initialized for document '{}'".format(doc.Title if doc else "<none>"))
         self.wall_families = []
         self.families = []
+        self._symbols_by_family = {}
         self._wall_records = []
         self.cancelled = False
         self._placement_running = False
         self.cancel_button.Click += self._cancel
+        self.Closing += self._on_closing
         self.place_button.Click += self._place
         self.family_box.SelectionChanged += self._family_changed
         self.select_all_button.Click += lambda s, a: [setattr(item, "IsChecked", True) for item in (self.wall_families_box.ItemsSource or [])]
         self.clear_button.Click += lambda s, a: [setattr(item, "IsChecked", False) for item in (self.wall_families_box.ItemsSource or [])]
-        self.refresh_button.Click += lambda s, a: self._refresh_wall_types()
+        self.refresh_button.Click += self._refresh_wall_types_click
         self.select_ducts_button.Click += self._select_active_view_ducts
         self._load_families()
         self._refresh_wall_types()
@@ -252,8 +260,11 @@ class QuickDamperWindow(forms.WPFWindow):
         _write_log("Initial UI population complete: {} damper families, {} rated wall families".format(len(self.families), len(self.wall_families)))
 
     def _select_active_view_ducts(self, sender, args):
+        self._queue_utility_action(self._select_active_view_ducts_api)
+
+    def _select_active_view_ducts_api(self):
         try:
-            ducts = FilteredElementCollector(doc, doc.ActiveView.Id).OfCategory(BuiltInCategory.OST_DuctCurves).WhereElementIsNotElementType().ToElements()
+            ducts = self._active_view_ducts()
             duct_ids = [duct.Id for duct in ducts]
             uidoc.Selection.SetElementIds(List[DB.ElementId](duct_ids))
             self.status_text.Text = "Selected {} ducts in active view".format(len(duct_ids))
@@ -263,14 +274,64 @@ class QuickDamperWindow(forms.WPFWindow):
         except Exception as exc:
             _write_exception("Could not select ducts in the active view")
             forms.alert("Could not select ducts: {}\n\nDetails saved to:\n{}".format(exc, LOG_PATH), exitscript=False)
+        finally:
+            self._finish_utility_action()
+
+    def _active_view_ducts(self, view_id=None):
+        target_view_id = view_id if view_id is not None else doc.ActiveView.Id
+        return list(FilteredElementCollector(doc, target_view_id).OfCategory(BuiltInCategory.OST_DuctCurves).WhereElementIsNotElementType().ToElements())
+
+    def _refresh_wall_types_click(self, sender, args):
+        self._queue_utility_action(self._refresh_wall_types_api)
+
+    def _refresh_wall_types_api(self):
+        try:
+            self._refresh_wall_types()
+        except Exception as exc:
+            _write_exception("Rated wall family refresh failed")
+            forms.alert("Could not refresh wall families: {}\n\nDetails saved to:\n{}".format(exc, LOG_PATH), exitscript=False)
+        finally:
+            self._finish_utility_action()
+
+    def _queue_utility_action(self, action):
+        if self._utility_action_running or self._placement_running:
+            return
+        self._utility_action_running = True
+        self.select_ducts_button.IsEnabled = False
+        self.refresh_button.IsEnabled = False
+        self.place_button.IsEnabled = False
+        try:
+            self._utility_event.raise_event(action)
+        except Exception as exc:
+            _write_exception("Could not queue modeless utility action")
+            self._finish_utility_action()
+            forms.alert("Could not complete the requested action: {}\n\nDetails saved to:\n{}".format(exc, LOG_PATH), exitscript=False)
+
+    def _finish_utility_action(self):
+        self._utility_action_running = False
+        self.select_ducts_button.IsEnabled = True
+        self.refresh_button.IsEnabled = True
+        self.place_button.IsEnabled = True
 
     def _cancel(self, sender, args):
+        if self._utility_action_running:
+            self.status_text.Text = "Please wait for the Revit selection/refresh to finish."
+            return
         self.cancelled = True
         if not getattr(self, "_placement_running", False):
             self.Close()
         else:
             self.progress_text.Text = "Cancelling... completed items will be kept"
             self.cancel_button.IsEnabled = False
+
+    def _on_closing(self, sender, args):
+        if self._utility_action_running:
+            args.Cancel = True
+            return
+        if getattr(self, "_placement_running", False):
+            self.cancelled = True
+            self.progress_text.Text = "Cancelling... completed items will be kept"
+            args.Cancel = True
 
     def _load_families(self):
         damper_families = []
@@ -283,6 +344,18 @@ class QuickDamperWindow(forms.WPFWindow):
                 pass
         damper_families.sort(key=lambda f: _safe_family_name(f).lower())
         self.families = damper_families
+        self._symbols_by_family = {}
+        for family in damper_families:
+            symbol_items = []
+            try:
+                for symbol_id in family.GetFamilySymbolIds():
+                    symbol = doc.GetElement(symbol_id)
+                    if symbol:
+                        symbol_items.append(SymbolItem(symbol))
+            except Exception:
+                _write_exception("Could not cache symbols for duct accessory family '{}'".format(_safe_family_name(family)))
+            symbol_items.sort(key=lambda item: item.Name.lower())
+            self._symbols_by_family[_element_id(family)] = symbol_items
         self.family_box.ItemsSource = [FamilyItem(f) for f in damper_families]
         _write_log("Loaded {} duct accessory families".format(len(damper_families)))
         if not damper_families:
@@ -291,17 +364,14 @@ class QuickDamperWindow(forms.WPFWindow):
             self.family_box.SelectedIndex = 0
 
     def _family_changed(self, sender, args):
+        self._populate_family_symbols()
+
+    def _populate_family_symbols(self):
         selected = self.family_box.SelectedItem
         if selected is None:
             self.symbol_box.ItemsSource = None
             return
-        symbols = []
-        family = selected.Family
-        for symbol_id in family.GetFamilySymbolIds():
-            symbol = doc.GetElement(symbol_id)
-            if symbol:
-                symbols.append(SymbolItem(symbol))
-        symbols.sort(key=lambda s: s.Name.lower())
+        symbols = self._symbols_by_family.get(_element_id(selected.Family), [])
         self.symbol_box.ItemsSource = symbols
         _write_log("Family '{}' has {} symbols".format(selected.Name, len(symbols)))
         if not symbols:
@@ -309,19 +379,21 @@ class QuickDamperWindow(forms.WPFWindow):
         if symbols:
             self.symbol_box.SelectedIndex = 0
 
-    def _linked_architecture_walls(self):
+    def _linked_architecture_walls(self, view_id=None):
         records = []
+        target_view_id = view_id if view_id is not None else doc.ActiveView.Id
         links = FilteredElementCollector(doc).OfClass(DB.RevitLinkInstance).ToElements()
         _write_log("Checking {} Revit link instances for walls".format(len(links)))
         for link in links:
             try:
-                if link.IsHidden(doc.ActiveView):
+                target_view = doc.GetElement(target_view_id)
+                if link.IsHidden(target_view):
                     continue
                 linked_doc = link.GetLinkDocument()
                 if not linked_doc:
                     continue
                 transform = link.GetTotalTransform() if hasattr(link, "GetTotalTransform") else link.GetTransform()
-                walls = FilteredElementCollector(linked_doc).OfCategory(BuiltInCategory.OST_Walls).WhereElementIsNotElementType().ToElements()
+                walls = FilteredElementCollector(doc, target_view_id, link.Id).OfCategory(BuiltInCategory.OST_Walls).WhereElementIsNotElementType().ToElements()
                 for wall in walls:
                     records.append((wall, transform, linked_doc.Title))
             except Exception:
@@ -330,11 +402,11 @@ class QuickDamperWindow(forms.WPFWindow):
         _write_log("Collected {} walls from loaded, visible links".format(len(records)))
         return records
 
-    def _refresh_wall_types(self):
+    def _refresh_wall_types(self, view_id=None):
         family_groups = {}
         self._wall_records = []
-        view_id = doc.ActiveView.Id
-        host_walls = FilteredElementCollector(doc, view_id).OfCategory(BuiltInCategory.OST_Walls).WhereElementIsNotElementType().ToElements()
+        target_view_id = view_id if view_id is not None else doc.ActiveView.Id
+        host_walls = FilteredElementCollector(doc, target_view_id).OfCategory(BuiltInCategory.OST_Walls).WhereElementIsNotElementType().ToElements()
         host_rated = 0
 
         def add_rated_wall(wall, transform, source_name):
@@ -354,7 +426,7 @@ class QuickDamperWindow(forms.WPFWindow):
                 host_rated += 1
                 add_rated_wall(wall, Transform.Identity, "host")
 
-        for wall, transform, source_name in self._linked_architecture_walls():
+        for wall, transform, source_name in self._linked_architecture_walls(target_view_id):
             if _is_rated_wall(wall):
                 add_rated_wall(wall, transform, "linked")
         saved_state = self._load_state().get(doc.Title if doc else "document", {})
@@ -448,14 +520,15 @@ class QuickDamperWindow(forms.WPFWindow):
         except Exception:
             return True
 
-    def _clash_point(self, duct, selected_families):
-        duct_solids = self._geometry_solids(duct)
+    def _clash_points(self, duct, selected_families):
         location = getattr(duct.Location, "Curve", None)
-        if not duct_solids or location is None:
-            _write_log("Duct {} cannot be tested: solids={}, curve_location={}".format(_element_id(duct), len(duct_solids), location is not None))
-            return None
+        if location is None:
+            _write_log("Duct {} cannot be tested: curve location is missing".format(_element_id(duct)))
+            return []
+        crossings = []
         tested_walls = 0
-        bounds_matches = 0
+        intersection_options = SolidCurveIntersectionOptions()
+        intersection_options.ResultType = SolidCurveIntersectionMode.CurveSegmentsInside
         for wall, transform, source in self._wall_records:
             key = _wall_type_key(wall)
             if _wall_family_key(wall) not in selected_families or not _is_rated_wall(wall):
@@ -469,31 +542,27 @@ class QuickDamperWindow(forms.WPFWindow):
                     except Exception:
                         _write_exception("Could not transform linked wall {} from '{}'".format(_element_id(wall), source))
                         continue
-                for duct_solid in duct_solids:
-                    if not self._bounds_overlap(duct_solid.GetBoundingBox(), transformed.GetBoundingBox(), 0.05):
-                        continue
-                    bounds_matches += 1
-                    try:
-                        if duct_solid.Intersect(transformed) != DB.SetComparisonResult.Disjoint:
-                            wall_box = transformed.GetBoundingBox()
-                            center = wall_box.Min.Add(wall_box.Max).Multiply(0.5)
-                            start = location.GetEndPoint(0)
-                            end = location.GetEndPoint(1)
-                            direction = end.Subtract(start)
-                            length = direction.GetLength()
-                            if length <= 0.001:
-                                continue
-                            direction = direction.Normalize()
-                            parameter = center.Subtract(start).DotProduct(direction)
-                            parameter = max(0.0, min(length, parameter))
-                            point = start.Add(direction.Multiply(parameter))
-                            _write_log("CLASH: duct {} with wall type '{}' from '{}' at ({:.3f}, {:.3f}, {:.3f})".format(_element_id(duct), key, source, point.X, point.Y, point.Z))
-                            return point
-                    except Exception:
-                        _write_exception("Solid intersection test failed for duct {} and wall {}".format(_element_id(duct), _element_id(wall)))
-                        continue
-        _write_log("Duct {}: no clash; selected rated walls tested={}, bounding-box candidates={}".format(_element_id(duct), tested_walls, bounds_matches))
-        return None
+                try:
+                    intersections = transformed.IntersectWithCurve(location, intersection_options)
+                    for segment_index in range(intersections.SegmentCount):
+                        segment = intersections.GetCurveSegment(segment_index)
+                        point = segment.Evaluate(0.5, True)
+                        if any(point.DistanceTo(existing[0]) <= 0.01 for existing in crossings):
+                            continue
+                        crossings.append((point, wall, source))
+                        _write_log("CLASH: duct {} with wall type '{}' from '{}' at ({:.3f}, {:.3f}, {:.3f})".format(_element_id(duct), key, source, point.X, point.Y, point.Z))
+                except Exception:
+                    _write_exception("Curve/solid intersection failed for duct {} and wall {}".format(_element_id(duct), _element_id(wall)))
+        def _curve_parameter(hit):
+            try:
+                projection = location.Project(hit[0])
+                return projection.Parameter if projection else 0.0
+            except Exception:
+                return 0.0
+
+        crossings.sort(key=_curve_parameter)
+        _write_log("Duct {}: {} distinct crossing(s) across {} selected rated wall records".format(_element_id(duct), len(crossings), tested_walls))
+        return crossings
 
     def _place(self, sender, args):
         if self.family_box.SelectedItem is None or self.symbol_box.SelectedItem is None:
@@ -505,120 +574,188 @@ class QuickDamperWindow(forms.WPFWindow):
             _write_log("Placement aborted: no rated wall family checked")
             forms.alert("Select at least one rated wall family.", exitscript=False)
             return
-        symbol = self.symbol_box.SelectedItem.Symbol
-        _write_log("=" * 72)
-        _write_log("PLACEMENT START: document='{}', view='{}', family='{}', type='{}'".format(doc.Title, doc.ActiveView.Name, self.family_box.SelectedItem.Name, self.symbol_box.SelectedItem.Name))
-        _write_log("Selected wall family keys: {}".format(", ".join(sorted(selected_families))))
-        _write_log("Candidate wall records: {}; selected symbol active={}".format(len(self._wall_records), symbol.IsActive))
-        self._save_state()
+        self._placement_symbol = self.symbol_box.SelectedItem.Symbol
+        self._placement_symbol_name = self.symbol_box.SelectedItem.Name
+        self._placement_family_name = self.family_box.SelectedItem.Name
+        self._selected_families = selected_families
+        self._placement_counts = {"placed": 0, "skipped": 0, "duplicate": 0}
+        self._placement_errors = []
+        self._placed_elements = []
+        self._isolation_ids = []
+        self._placement_view_id = None
         self._placement_running = True
         self.cancelled = False
         self.cancel_button.IsEnabled = True
         self.place_button.IsEnabled = False
-        placed_elements = []
-        paired_wall_elements = []
-        placed = 0
-        skipped = 0
-        duplicate = 0
-        placement_errors = []
-        existing_points = []
-        for accessory in FilteredElementCollector(doc).OfCategory(BuiltInCategory.OST_DuctAccessory).WhereElementIsNotElementType().ToElements():
-            try:
-                loc = accessory.Location
-                if hasattr(loc, "Point"):
-                    existing_points.append(loc.Point)
-            except Exception:
-                pass
-        transaction = Transaction(doc, "Quick place fire smoke dampers")
+        for control in (self.family_box, self.symbol_box, self.wall_families_box, self.select_all_button, self.clear_button, self.refresh_button, self.select_ducts_button):
+            control.IsEnabled = False
+        self.progress_bar.Value = 0
+        self.progress_text.Text = "Starting..."
+        _write_log("=" * 72)
         try:
-            transaction.Start()
-            _write_log("Revit transaction started")
-            if not symbol.IsActive:
-                symbol.Activate()
-                _write_log("Activated family symbol {}".format(_element_id(symbol)))
-            ducts = list(FilteredElementCollector(doc).OfCategory(BuiltInCategory.OST_DuctCurves).WhereElementIsNotElementType().ToElements())
-            total = len(ducts)
-            _write_log("Found {} host duct curves to inspect".format(total))
-            if not total:
-                _write_log("WARNING: no host duct curves found in the active document")
-            for index, duct in enumerate(ducts, 1):
-                if self.cancelled:
-                    break
-                if index % 10 == 0 or index == total:
-                    percent = int(float(index) * 100.0 / float(total)) if total else 100
-                    self.progress_bar.Value = percent
-                    self.progress_text.Text = "{} / {} ducts".format(index, total)
-                    self._pump_ui()
-                location = self._clash_point(duct, selected_families)
-                if location is None:
-                    skipped += 1
-                    continue
-                if any(location.DistanceTo(point) <= 0.164042 for point in existing_points):
-                    duplicate += 1
-                    _write_log("DUPLICATE: duct {} clash point is within 50 mm of an existing duct accessory".format(_element_id(duct)))
-                    continue
-                try:
-                    try:
-                        instance = doc.Create.NewFamilyInstance(location, symbol, duct, RevitStructuralType.NonStructural)
-                        _write_log("Placed on duct host using duct-hosted overload; duct={}, instance={}".format(_element_id(duct), _element_id(instance) if instance else "<none>"))
-                    except Exception:
-                        _write_exception("Duct-hosted NewFamilyInstance overload failed for duct {} and symbol {}".format(_element_id(duct), _element_id(symbol)))
-                        level = doc.GetElement(duct.LevelId)
-                        instance = doc.Create.NewFamilyInstance(location, symbol, duct, level, RevitStructuralType.NonStructural)
-                        _write_log("Placed using level fallback overload; duct={}, instance={}".format(_element_id(duct), _element_id(instance) if instance else "<none>"))
-                    if instance:
-                        placed += 1
-                        placed_elements.append(instance.Id)
-                        paired_wall_elements.append(duct.Id)
-                        existing_points.append(location)
-                    else:
-                        skipped += 1
-                except Exception as exc:
-                    skipped += 1
-                    _write_exception("All placement overloads failed for duct {} and symbol {}: {}".format(_element_id(duct), _element_id(symbol), exc))
-                    if len(placement_errors) < 3:
-                        placement_errors.append("Duct {}: {}".format(_element_id(duct), str(exc)))
-            transaction.Commit()
-            _write_log("Revit transaction committed")
+            self._revit_event.raise_event(self._begin_placement)
         except Exception as exc:
-            _write_exception("Placement run aborted; transaction/model operation failed: {}".format(exc))
-            if transaction.HasStarted():
-                transaction.RollBack()
-                _write_log("Revit transaction rolled back")
-            self._placement_running = False
-            self.place_button.IsEnabled = True
-            self.cancel_button.IsEnabled = True
-            self.progress_text.Text = "Failed"
-            forms.alert("Damper placement failed: {}\n\nFull details saved to:\n{}".format(exc, LOG_PATH), exitscript=False)
+            _write_exception("Could not queue placement ExternalEvent")
+            self._finish_placement("Failed", "Could not start placement: {}".format(exc))
+
+    def _begin_placement(self):
+        try:
+            if self.cancelled:
+                self._finish_placement("Cancelled")
+                return
+            self._placement_counts = {"placed": 0, "skipped": 0, "duplicate": 0}
+            self._placement_errors = []
+            self._placed_elements = []
+            self._isolation_ids = []
+            self._placement_view_id = doc.ActiveView.Id
+            self._save_state()
+            self._refresh_wall_types(self._placement_view_id)
+            self._selected_families = set(item.Key for item in (self.wall_families_box.ItemsSource or []) if getattr(item, "IsChecked", False))
+            if not self._selected_families:
+                self._finish_placement("Failed", "No selected rated wall family is available in the active view.")
+                return
+            self._placement_ducts = self._active_view_ducts(self._placement_view_id)
+            self._placement_index = 0
+            self._existing_points = []
+            symbol_id = self._placement_symbol.Id
+            accessories = FilteredElementCollector(doc, self._placement_view_id).OfCategory(BuiltInCategory.OST_DuctAccessory).WhereElementIsNotElementType().ToElements()
+            for accessory in accessories:
+                try:
+                    location = accessory.Location
+                    if accessory.Symbol.Id == symbol_id and hasattr(location, "Point"):
+                        self._existing_points.append(location.Point)
+                except Exception:
+                    continue
+            _write_log("PLACEMENT START: document='{}', view='{}', family='{}', type='{}'".format(doc.Title, doc.ActiveView.Name, self._placement_family_name, self._placement_symbol_name))
+            _write_log("Selected wall family keys: {}".format(", ".join(sorted(self._selected_families))))
+            _write_log("Candidate wall records: {}; active-view ducts: {}; matching existing symbols: {}".format(len(self._wall_records), len(self._placement_ducts), len(self._existing_points)))
+            if not self._placement_ducts:
+                self._finish_placement("Completed")
+                return
+            self._process_placement_batch()
+        except Exception as exc:
+            _write_exception("Could not initialize placement run")
+            self._finish_placement("Failed", "Placement initialization failed: {}".format(exc))
+
+    def _process_placement_batch(self):
+        if self.cancelled:
+            self._finish_placement("Cancelled")
             return
-        finally_state = "Cancelled" if self.cancelled else "Completed"
-        self.progress_text.Text = finally_state
-        self.progress_bar.Value = 100 if not self.cancelled else self.progress_bar.Value
+        batch_start_index = self._placement_index
+        batch_counts_before = dict(self._placement_counts)
+        batch_placed_count = len(self._placed_elements)
+        batch_isolation_count = len(self._isolation_ids)
+        batch_point_count = len(self._existing_points)
+        batch_error_count = len(self._placement_errors)
+        transaction = None
+        try:
+            transaction = Transaction(doc, "Place fire smoke dampers (batch)")
+            transaction.Start()
+            if not self._placement_symbol.IsActive:
+                self._placement_symbol.Activate()
+                _write_log("Activated family symbol {}".format(_element_id(self._placement_symbol)))
+            end_index = min(self._placement_index + 10, len(self._placement_ducts))
+            while self._placement_index < end_index and not self.cancelled:
+                duct = self._placement_ducts[self._placement_index]
+                self._placement_index += 1
+                crossings = self._clash_points(duct, self._selected_families)
+                if not crossings:
+                    self._placement_counts["skipped"] += 1
+                    continue
+                for location, wall, wall_source in crossings:
+                    if self.cancelled:
+                        break
+                    if any(location.DistanceTo(point) <= 0.164042 for point in self._existing_points):
+                        self._placement_counts["duplicate"] += 1
+                        _write_log("DUPLICATE: selected damper symbol already exists within 50 mm at duct {}".format(_element_id(duct)))
+                        continue
+                    try:
+                        try:
+                            instance = doc.Create.NewFamilyInstance(location, self._placement_symbol, duct, RevitStructuralType.NonStructural)
+                            _write_log("Placed using duct-hosted overload; duct={}, instance={}".format(_element_id(duct), _element_id(instance) if instance else "<none>"))
+                        except Exception:
+                            _write_exception("Duct-hosted placement overload failed for duct {} and symbol {}".format(_element_id(duct), _element_id(self._placement_symbol)))
+                            level = doc.GetElement(duct.LevelId)
+                            instance = doc.Create.NewFamilyInstance(location, self._placement_symbol, duct, level, RevitStructuralType.NonStructural)
+                            _write_log("Placed using level fallback overload; duct={}, instance={}".format(_element_id(duct), _element_id(instance) if instance else "<none>"))
+                        if instance:
+                            self._placement_counts["placed"] += 1
+                            self._placed_elements.append(instance.Id)
+                            self._isolation_ids.append(duct.Id)
+                            if wall_source == "host":
+                                self._isolation_ids.append(wall.Id)
+                            self._existing_points.append(location)
+                        else:
+                            self._placement_counts["skipped"] += 1
+                    except Exception as exc:
+                        self._placement_counts["skipped"] += 1
+                        _write_exception("All placement overloads failed for duct {} and symbol {}: {}".format(_element_id(duct), _element_id(self._placement_symbol), exc))
+                        if len(self._placement_errors) < 3:
+                            self._placement_errors.append("Duct {}: {}".format(_element_id(duct), str(exc)))
+            transaction.Commit()
+            _write_log("Committed placement batch through duct {}/{}".format(self._placement_index, len(self._placement_ducts)))
+        except Exception as exc:
+            _write_exception("Placement batch failed at duct index {}".format(self._placement_index))
+            try:
+                if transaction is not None and transaction.HasStarted():
+                    transaction.RollBack()
+                    _write_log("Failed placement batch rolled back")
+            except Exception:
+                _write_exception("Could not roll back failed placement batch")
+            self._placement_index = batch_start_index
+            self._placement_counts = batch_counts_before
+            del self._placed_elements[batch_placed_count:]
+            del self._isolation_ids[batch_isolation_count:]
+            del self._existing_points[batch_point_count:]
+            del self._placement_errors[batch_error_count:]
+            self._finish_placement("Failed", "Placement stopped after {} ducts: {}".format(self._placement_index, exc))
+            return
+
+        percent = int(float(self._placement_index) * 100.0 / float(len(self._placement_ducts)))
+        self.progress_bar.Value = percent
+        self.progress_text.Text = "{} / {} ducts".format(self._placement_index, len(self._placement_ducts))
+        if self.cancelled:
+            self._finish_placement("Cancelled")
+        elif self._placement_index >= len(self._placement_ducts):
+            self._finish_placement("Completed")
+        else:
+            try:
+                continuation = Action(lambda: self._revit_event.raise_event(self._process_placement_batch))
+                self.Dispatcher.BeginInvoke(continuation, DispatcherPriority.Background)
+            except Exception as exc:
+                _write_exception("Could not schedule next placement batch")
+                self._finish_placement("Failed", "Could not continue placement: {}".format(exc))
+
+    def _finish_placement(self, state, error_message=None):
+        counts = getattr(self, "_placement_counts", {"placed": 0, "skipped": 0, "duplicate": 0})
         self._placement_running = False
         self.place_button.IsEnabled = True
         self.cancel_button.IsEnabled = True
-        if bool(self.isolate_box.IsChecked) and placed_elements:
-            ids = list(placed_elements) + list(paired_wall_elements)
-            self._isolate_placed(ids)
-        summary = "{}: placed {} dampers. Duplicate {}. Skipped {} incompatible ducts.".format(finally_state, placed, duplicate, skipped)
-        if placement_errors:
-            summary += "\nFirst placement error: {}".format(placement_errors[0])
-        _write_log("PLACEMENT SUMMARY: {}; errors captured={}".format(summary.replace("\n", " | "), len(placement_errors)))
+        for control in (self.family_box, self.symbol_box, self.wall_families_box, self.select_all_button, self.clear_button, self.refresh_button, self.select_ducts_button):
+            control.IsEnabled = True
+        self.progress_text.Text = state
+        if state == "Completed":
+            self.progress_bar.Value = 100
+        if bool(self.isolate_box.IsChecked) and getattr(self, "_placed_elements", None):
+            ids = list(self._placed_elements) + list(self._isolation_ids)
+            self._isolate_placed(ids, getattr(self, "_placement_view_id", None))
+        summary = "{}: placed {} dampers. Duplicate {}. Skipped {} ducts.".format(state, counts["placed"], counts["duplicate"], counts["skipped"])
+        errors = getattr(self, "_placement_errors", [])
+        if errors:
+            summary += "\nFirst placement error: {}".format(errors[0])
+        if error_message:
+            summary += "\n{}".format(error_message)
+        _write_log("PLACEMENT SUMMARY: {}; errors captured={}".format(summary.replace("\n", " | "), len(errors)))
         summary += "\n\nFull diagnostic log:\n{}".format(LOG_PATH)
         forms.alert(summary, exitscript=False)
         self.Close()
 
-    def _pump_ui(self):
-        try:
-            self.Dispatcher.Invoke(Action(lambda: None), DispatcherPriority.Background)
-        except Exception:
-            pass
-
-    def _isolate_placed(self, element_ids):
+    def _isolate_placed(self, element_ids, view_id=None):
         if not element_ids:
             return
         try:
-            doc.ActiveView.IsolateElementsTemporary(list(element_ids))
+            target_view = doc.GetElement(view_id) if view_id is not None else doc.ActiveView
+            target_view.IsolateElementsTemporary(list(element_ids))
         except Exception as exc:
             logger.debug("Temporary isolation unavailable: {}".format(exc))
 
@@ -630,7 +767,7 @@ _write_log("=" * 72)
 _write_log("SCRIPT INVOCATION: document='{}'; log='{}'".format(doc.Title if doc else "<none>", LOG_PATH))
 try:
     window = QuickDamperWindow()
-    window.ShowDialog()
+    window.Show()
 except Exception as exc:
     _write_exception("Unhandled tool initialization/window exception: {}".format(exc))
     forms.alert("Quick Fire Damper failed to start: {}\n\nFull details saved to:\n{}".format(exc, LOG_PATH), exitscript=False)
