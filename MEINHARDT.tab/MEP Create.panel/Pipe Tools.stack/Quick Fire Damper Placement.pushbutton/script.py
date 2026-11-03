@@ -12,7 +12,7 @@ clr.AddReference("PresentationFramework")
 
 from Autodesk.Revit.DB import (
     BuiltInCategory, FilteredElementCollector, Transaction,
-    Options, SolidUtils, StructuralType, Transform
+    Options, SolidUtils, Transform
 )
 from Autodesk.Revit.DB.Structure import StructuralType as RevitStructuralType
 from pyrevit import DB, forms, revit, script
@@ -358,7 +358,7 @@ class QuickDamperWindow(forms.WPFWindow):
                     continue
                 try:
                     level = doc.GetElement(duct.LevelId)
-                    instance = doc.Create.NewFamilyInstance(location, symbol, duct, level, StructuralType.NonStructural)
+                    instance = doc.Create.NewFamilyInstance(location, symbol, duct, level, RevitStructuralType.NonStructural)
                     if instance:
                         placed += 1
                         existing_points.append(location)
