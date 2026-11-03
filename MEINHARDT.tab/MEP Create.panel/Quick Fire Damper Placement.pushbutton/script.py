@@ -88,13 +88,11 @@ def _wall_type_key(wall):
 
 
 class WallTypeItem(object):
-    def __init__(self, key, source):
+    def __init__(self, key, source, is_checked=False):
         self.Key = key
         self.Source = source
-
-    def __str__(self):
-        suffix = " (linked)" if self.Source else ""
-        return self.Key + suffix
+        self.IsChecked = is_checked
+        self.DisplayName = key + (" (linked)" if source == "linked" else "")
 
 
 class FamilyItem(object):
@@ -102,16 +100,11 @@ class FamilyItem(object):
         self.Family = family
         self.Name = family.Name
 
-    def __str__(self):
-        return self.Name
-
 
 class SymbolItem(object):
     def __init__(self, symbol):
         self.Symbol = symbol
-
-    def __str__(self):
-        return self.Symbol.Name
+        self.Name = symbol.Name
 
 
 class QuickDamperWindow(forms.WPFWindow):
@@ -122,8 +115,8 @@ class QuickDamperWindow(forms.WPFWindow):
         self._wall_records = []
         self.cancelled = False
         self.family_box.SelectionChanged += self._family_changed
-        self.select_all_button.Click += lambda s, a: self.wall_types_box.SelectAll()
-        self.clear_button.Click += lambda s, a: self.wall_types_box.SelectedItems.Clear()
+        self.select_all_button.Click += lambda s, a: [setattr(item, "IsChecked", True) for item in (self.wall_types_box.ItemsSource or [])]
+        self.clear_button.Click += lambda s, a: [setattr(item, "IsChecked", False) for item in (self.wall_types_box.ItemsSource or [])]
         self.refresh_button.Click += lambda s, a: self._refresh_wall_types()
         self.cancel_button.Click += self._cancel
         self.place_button.Click += self._place
@@ -141,10 +134,7 @@ class QuickDamperWindow(forms.WPFWindow):
         for family in collector:
             try:
                 family_category = family.FamilyCategory
-                if family_category and family_category.Id.IntegerValue in (
-                    int(BuiltInCategory.OST_DuctAccessory),
-                    int(BuiltInCategory.OST_MechanicalEquipment),
-                ):
+                if family_category and family_category.Id.IntegerValue == int(BuiltInCategory.OST_DuctAccessory):
                     damper_families.append(family)
             except Exception:
                 pass
@@ -206,7 +196,7 @@ class QuickDamperWindow(forms.WPFWindow):
                     keys[key] = None
                     source_names[key] = "linked"
                     self._wall_records.append((wall, transform, source_name))
-        self.wall_types = [WallTypeItem(key, source_names[key]) for key in sorted(keys, key=lambda k: k.lower())]
+        self.wall_types = [WallTypeItem(key, source_names[key], key in set(self._load_state().get(doc.Title if doc else "document", {}).get("wall_types", []))) for key in sorted(keys, key=lambda k: k.lower())]
         self.wall_types_box.ItemsSource = self.wall_types
         self.status_text.Text = "{} rated wall types in active view".format(len(self.wall_types))
 
@@ -226,7 +216,7 @@ class QuickDamperWindow(forms.WPFWindow):
         state[doc.Title if doc else "document"] = {
             "family": getattr(self.family_box.SelectedItem, "Name", ""),
             "symbol": getattr(self.symbol_box.SelectedItem.Symbol, "Name", "") if self.symbol_box.SelectedItem else "",
-            "wall_types": [item.Key for item in self.wall_types_box.SelectedItems],
+            "wall_types": [item.Key for item in (self.wall_types_box.ItemsSource or []) if getattr(item, "IsChecked", False)],
         }
         try:
             with open(self._state_key(), "w") as handle:
@@ -247,11 +237,8 @@ class QuickDamperWindow(forms.WPFWindow):
                     self.symbol_box.SelectedIndex = index
                     break
         selected_keys = set(state.get("wall_types", []))
-        if selected_keys:
-            selected = [item for item in (self.wall_types_box.ItemsSource or []) if item.Key in selected_keys]
-            self.wall_types_box.SelectedItems.Clear()
-            for item in selected:
-                self.wall_types_box.SelectedItems.Add(item)
+        for item in (self.wall_types_box.ItemsSource or []):
+            item.IsChecked = item.Key in selected_keys
 
     def _point_distance(self, a, b):
         return a.DistanceTo(b)
@@ -333,7 +320,7 @@ class QuickDamperWindow(forms.WPFWindow):
         if self.family_box.SelectedItem is None or self.symbol_box.SelectedItem is None:
             forms.alert("Select a damper family and symbol.", exitscript=False)
             return
-        selected_types = set(item.Key for item in self.wall_types_box.SelectedItems)
+        selected_types = set(item.Key for item in (self.wall_types_box.ItemsSource or []) if getattr(item, "IsChecked", False))
         if not selected_types:
             forms.alert("Select at least one wall type.", exitscript=False)
             return
