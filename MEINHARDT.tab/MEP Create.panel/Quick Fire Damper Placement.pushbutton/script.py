@@ -20,6 +20,7 @@ from Autodesk.Revit.DB import (
 from Autodesk.Revit.DB.Structure import StructuralType as RevitStructuralType
 from pyrevit import DB, forms, revit, script
 from System import Action
+from System.Collections.Generic import List
 from System.Windows.Threading import DispatcherPriority
 
 TOOL_VERSION = "1.0"
@@ -113,6 +114,29 @@ def _wall_type_key(wall):
         return ""
 
 
+def _wall_family_name(wall):
+    try:
+        wall_document = wall.Document
+    except Exception:
+        wall_document = doc
+    try:
+        wall_type = wall_document.GetElement(wall.GetTypeId())
+    except Exception:
+        wall_type = None
+    if wall_type is not None:
+        try:
+            family_name = wall_type.FamilyName
+            if family_name and str(family_name).strip():
+                return str(family_name).strip()
+        except Exception:
+            pass
+    return _wall_type_key(wall)
+
+
+def _wall_family_key(wall):
+    return _wall_family_name(wall).strip().lower()
+
+
 def _family_category_id(family):
     try:
         category_id = family.FamilyCategoryId
@@ -182,18 +206,16 @@ def _safe_family_name(family):
     return _safe_element_name(family, "Unnamed Family")
 
 
-class WallTypeItem(object):
-    def __init__(self, key, source, description="", is_checked=False):
+class WallFamilyItem(object):
+    def __init__(self, key, family_name, type_keys, sources, is_checked=False):
         self.Key = key
-        self.Source = source
-        self.Description = description
+        self.Name = family_name
+        self.TypeKeys = set(type_keys)
+        self.TypeCount = len(self.TypeKeys)
+        self.Sources = set(sources)
         self.IsChecked = is_checked
-        label = key
-        if description:
-            label += " - " + description
-        if source == "linked":
-            label += " (linked)"
-        self.DisplayName = label
+        source_label = "host + linked" if len(self.Sources) > 1 else ("linked" if "linked" in self.Sources else "host")
+        self.DisplayName = "{} ({} rated types, {})".format(family_name, self.TypeCount, source_label)
 
 
 class FamilyItem(object):
@@ -212,7 +234,7 @@ class QuickDamperWindow(forms.WPFWindow):
     def __init__(self):
         forms.WPFWindow.__init__(self, os.path.join(THIS_DIR, "QuickFireDamper.xaml"))
         _write_log("Window initialized for document '{}'".format(doc.Title if doc else "<none>"))
-        self.wall_types = []
+        self.wall_families = []
         self.families = []
         self._wall_records = []
         self.cancelled = False
@@ -220,13 +242,27 @@ class QuickDamperWindow(forms.WPFWindow):
         self.cancel_button.Click += self._cancel
         self.place_button.Click += self._place
         self.family_box.SelectionChanged += self._family_changed
-        self.select_all_button.Click += lambda s, a: [setattr(item, "IsChecked", True) for item in (self.wall_types_box.ItemsSource or [])]
-        self.clear_button.Click += lambda s, a: [setattr(item, "IsChecked", False) for item in (self.wall_types_box.ItemsSource or [])]
+        self.select_all_button.Click += lambda s, a: [setattr(item, "IsChecked", True) for item in (self.wall_families_box.ItemsSource or [])]
+        self.clear_button.Click += lambda s, a: [setattr(item, "IsChecked", False) for item in (self.wall_families_box.ItemsSource or [])]
         self.refresh_button.Click += lambda s, a: self._refresh_wall_types()
+        self.select_ducts_button.Click += self._select_active_view_ducts
         self._load_families()
         self._refresh_wall_types()
         self._restore_state()
-        _write_log("Initial UI population complete: {} families, {} rated wall types".format(len(self.families), len(self.wall_types)))
+        _write_log("Initial UI population complete: {} damper families, {} rated wall families".format(len(self.families), len(self.wall_families)))
+
+    def _select_active_view_ducts(self, sender, args):
+        try:
+            ducts = FilteredElementCollector(doc, doc.ActiveView.Id).OfCategory(BuiltInCategory.OST_DuctCurves).WhereElementIsNotElementType().ToElements()
+            duct_ids = [duct.Id for duct in ducts]
+            uidoc.Selection.SetElementIds(List[DB.ElementId](duct_ids))
+            self.status_text.Text = "Selected {} ducts in active view".format(len(duct_ids))
+            _write_log("Selected {} duct curves from active view '{}'".format(len(duct_ids), doc.ActiveView.Name))
+            if not duct_ids:
+                forms.alert("No ducts were found in the active view.", exitscript=False)
+        except Exception as exc:
+            _write_exception("Could not select ducts in the active view")
+            forms.alert("Could not select ducts: {}\n\nDetails saved to:\n{}".format(exc, LOG_PATH), exitscript=False)
 
     def _cancel(self, sender, args):
         self.cancelled = True
@@ -295,41 +331,44 @@ class QuickDamperWindow(forms.WPFWindow):
         return records
 
     def _refresh_wall_types(self):
-        keys = {}
-        source_names = {}
-        descriptions = {}
+        family_groups = {}
         self._wall_records = []
         view_id = doc.ActiveView.Id
         host_walls = FilteredElementCollector(doc, view_id).OfCategory(BuiltInCategory.OST_Walls).WhereElementIsNotElementType().ToElements()
         host_rated = 0
+
+        def add_rated_wall(wall, transform, source_name):
+            family_name = _wall_family_name(wall)
+            family_key = family_name.strip().lower()
+            if not family_key:
+                return
+            type_key = _wall_type_key(wall)
+            group = family_groups.setdefault(family_key, {"name": family_name, "types": set(), "sources": set()})
+            if type_key:
+                group["types"].add(type_key)
+            group["sources"].add(source_name)
+            self._wall_records.append((wall, transform, source_name))
+
         for wall in host_walls:
             if _is_rated_wall(wall):
                 host_rated += 1
-                key = _wall_type_key(wall)
-                if key:
-                    keys[key] = None
-                    source_names[key] = "host"
-                    descriptions[key] = _wall_type_description(wall)
-                    self._wall_records.append((wall, Transform.Identity, doc.Title))
+                add_rated_wall(wall, Transform.Identity, "host")
 
         for wall, transform, source_name in self._linked_architecture_walls():
             if _is_rated_wall(wall):
-                key = _wall_type_key(wall)
-                if key:
-                    keys[key] = None
-                    source_names[key] = "linked"
-                    try:
-                        wall_type = wall.Document.GetElement(wall.GetTypeId())
-                    except Exception:
-                        wall_type = None
-                    descriptions[key] = _wall_type_description(wall_type)
-                    self._wall_records.append((wall, transform, source_name))
-        remembered = set(self._load_state().get(doc.Title if doc else "document", {}).get("wall_types", []))
-        self.wall_types = [WallTypeItem(key, source_names[key], descriptions.get(key, ""), key in remembered) for key in sorted(keys, key=lambda k: k.lower())]
-        self.wall_types_box.ItemsSource = self.wall_types
-        self.status_text.Text = "{} rated wall types in active view".format(len(self.wall_types))
-        _write_log("Wall scan: {} host walls / {} rated; {} distinct rated wall types; {} matching wall records".format(len(host_walls), host_rated, len(self.wall_types), len(self._wall_records)))
-        if not self.wall_types:
+                add_rated_wall(wall, transform, "linked")
+        saved_state = self._load_state().get(doc.Title if doc else "document", {})
+        remembered_families = set(saved_state.get("wall_families", []))
+        remembered_types = set(saved_state.get("wall_types", []))
+        self.wall_families = []
+        for family_key in sorted(family_groups):
+            group = family_groups[family_key]
+            is_checked = family_key in remembered_families or bool(group["types"].intersection(remembered_types))
+            self.wall_families.append(WallFamilyItem(family_key, group["name"], group["types"], group["sources"], is_checked))
+        self.wall_families_box.ItemsSource = self.wall_families
+        self.status_text.Text = "{} rated wall families".format(len(self.wall_families))
+        _write_log("Wall scan: {} host walls / {} rated; {} rated wall families; {} matching wall records".format(len(host_walls), host_rated, len(self.wall_families), len(self._wall_records)))
+        if not self.wall_families:
             _write_log("WARNING: no rated walls found; check NWB_Material/NWB_MATERIAL values and active view visibility")
 
     def _state_key(self):
@@ -348,7 +387,7 @@ class QuickDamperWindow(forms.WPFWindow):
         state[doc.Title if doc else "document"] = {
             "family": getattr(self.family_box.SelectedItem, "Name", ""),
             "symbol": getattr(self.symbol_box.SelectedItem.Symbol, "Name", "") if self.symbol_box.SelectedItem else "",
-            "wall_types": [item.Key for item in (self.wall_types_box.ItemsSource or []) if getattr(item, "IsChecked", False)],
+            "wall_families": [item.Key for item in (self.wall_families_box.ItemsSource or []) if getattr(item, "IsChecked", False)],
         }
         try:
             with open(self._state_key(), "w") as handle:
@@ -368,10 +407,6 @@ class QuickDamperWindow(forms.WPFWindow):
                 if symbol.Name == state["symbol"]:
                     self.symbol_box.SelectedIndex = index
                     break
-        selected_keys = set(state.get("wall_types", []))
-        for item in (self.wall_types_box.ItemsSource or []):
-            item.IsChecked = item.Key in selected_keys
-
     def _point_distance(self, a, b):
         return a.DistanceTo(b)
 
@@ -413,7 +448,7 @@ class QuickDamperWindow(forms.WPFWindow):
         except Exception:
             return True
 
-    def _clash_point(self, duct, selected_types):
+    def _clash_point(self, duct, selected_families):
         duct_solids = self._geometry_solids(duct)
         location = getattr(duct.Location, "Curve", None)
         if not duct_solids or location is None:
@@ -423,7 +458,7 @@ class QuickDamperWindow(forms.WPFWindow):
         bounds_matches = 0
         for wall, transform, source in self._wall_records:
             key = _wall_type_key(wall)
-            if key not in selected_types or not _is_rated_wall(wall):
+            if _wall_family_key(wall) not in selected_families or not _is_rated_wall(wall):
                 continue
             tested_walls += 1
             for wall_solid in self._geometry_solids(wall):
@@ -465,15 +500,15 @@ class QuickDamperWindow(forms.WPFWindow):
             _write_log("Placement aborted: no family or symbol selected")
             forms.alert("Select a damper family and symbol.", exitscript=False)
             return
-        selected_types = set(item.Key for item in (self.wall_types_box.ItemsSource or []) if getattr(item, "IsChecked", False))
-        if not selected_types:
-            _write_log("Placement aborted: no rated wall type checked")
-            forms.alert("Select at least one wall type.", exitscript=False)
+        selected_families = set(item.Key for item in (self.wall_families_box.ItemsSource or []) if getattr(item, "IsChecked", False))
+        if not selected_families:
+            _write_log("Placement aborted: no rated wall family checked")
+            forms.alert("Select at least one rated wall family.", exitscript=False)
             return
         symbol = self.symbol_box.SelectedItem.Symbol
         _write_log("=" * 72)
         _write_log("PLACEMENT START: document='{}', view='{}', family='{}', type='{}'".format(doc.Title, doc.ActiveView.Name, self.family_box.SelectedItem.Name, self.symbol_box.SelectedItem.Name))
-        _write_log("Selected wall type keys: {}".format(", ".join(sorted(selected_types))))
+        _write_log("Selected wall family keys: {}".format(", ".join(sorted(selected_families))))
         _write_log("Candidate wall records: {}; selected symbol active={}".format(len(self._wall_records), symbol.IsActive))
         self._save_state()
         self._placement_running = True
@@ -514,7 +549,7 @@ class QuickDamperWindow(forms.WPFWindow):
                     self.progress_bar.Value = percent
                     self.progress_text.Text = "{} / {} ducts".format(index, total)
                     self._pump_ui()
-                location = self._clash_point(duct, selected_types)
+                location = self._clash_point(duct, selected_families)
                 if location is None:
                     skipped += 1
                     continue
