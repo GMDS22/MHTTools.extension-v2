@@ -429,7 +429,17 @@ class QuickDamperWindow(forms.WPFWindow):
 
     def _active_view_ducts(self, view_id=None):
         target_view_id = DB.ElementId(int(view_id)) if view_id is not None else doc.ActiveView.Id
-        return list(FilteredElementCollector(doc, target_view_id).OfCategory(BuiltInCategory.OST_DuctCurves).WhereElementIsNotElementType().ToElements())
+        elements = (
+            FilteredElementCollector(doc, target_view_id)
+            .WhereElementIsNotElementType()
+            .ToElements()
+        )
+        duct_category_id = int(BuiltInCategory.OST_DuctCurves)
+        return [
+            element for element in elements
+            if element.Category is not None
+            and element.Category.Id.IntegerValue == duct_category_id
+        ]
 
     def _refresh_wall_types_click(self, sender, args):
         self._queue_utility_action(self._refresh_wall_types_api)
@@ -622,7 +632,7 @@ class QuickDamperWindow(forms.WPFWindow):
                 if not linked_doc:
                     continue
                 transform = link.GetTotalTransform() if hasattr(link, "GetTotalTransform") else link.GetTransform()
-                walls = FilteredElementCollector(doc, target_view_element_id, link.Id).OfCategory(BuiltInCategory.OST_Walls).WhereElementIsNotElementType().ToElements()
+                walls = FilteredElementCollector(doc, target_view_element_id, link.Id).OfClass(DB.Wall).WhereElementIsNotElementType().ToElements()
                 for wall in walls:
                     if crop_bounds is not None:
                         try:
@@ -646,7 +656,7 @@ class QuickDamperWindow(forms.WPFWindow):
         self._wall_records = []
         target_view_id = int(view_id) if view_id is not None else int(doc.ActiveView.Id.IntegerValue)
         target_view_element_id = DB.ElementId(target_view_id)
-        host_walls = FilteredElementCollector(doc, target_view_element_id).OfCategory(BuiltInCategory.OST_Walls).WhereElementIsNotElementType().ToElements()
+        host_walls = FilteredElementCollector(doc, target_view_element_id).OfClass(DB.Wall).WhereElementIsNotElementType().ToElements()
         host_rated = 0
 
         def add_rated_wall(wall, transform, source_name, source_model=None, placement_candidate=True, link_id=None):
@@ -1154,9 +1164,11 @@ class QuickDamperWindow(forms.WPFWindow):
             self._placement_index = 0
             self._existing_points = []
             symbol_id = self._placement_symbol_id
-            accessories = FilteredElementCollector(doc, DB.ElementId(self._placement_view_id)).OfCategory(BuiltInCategory.OST_DuctAccessory).WhereElementIsNotElementType().ToElements()
+            accessories = FilteredElementCollector(doc, DB.ElementId(self._placement_view_id)).OfClass(DB.FamilyInstance).WhereElementIsNotElementType().ToElements()
             for accessory in accessories:
                 try:
+                    if accessory.Category is None or accessory.Category.Id.IntegerValue != int(BuiltInCategory.OST_DuctAccessory):
+                        continue
                     location = accessory.Location
                     if int(accessory.Symbol.Id.IntegerValue) == symbol_id and hasattr(location, "Point"):
                         self._existing_points.append(self._point_coordinates(location.Point))
