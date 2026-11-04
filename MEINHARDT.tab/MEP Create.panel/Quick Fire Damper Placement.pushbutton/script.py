@@ -431,6 +431,7 @@ class QuickDamperWindow(forms.WPFWindow):
         target_view_id = DB.ElementId(int(view_id)) if view_id is not None else doc.ActiveView.Id
         elements = (
             FilteredElementCollector(doc, target_view_id)
+            .WherePasses(DB.ElementCategoryFilter(DB.ElementId(int(BuiltInCategory.OST_DuctCurves))))
             .ToElements()
         )
         duct_category_id = int(BuiltInCategory.OST_DuctCurves)
@@ -533,7 +534,7 @@ class QuickDamperWindow(forms.WPFWindow):
 
     def _load_families(self):
         damper_families = []
-        collector = FilteredElementCollector(doc)
+        collector = FilteredElementCollector(doc).WherePasses(DB.ElementClassFilter(DB.Family))
         for family in collector:
             try:
                 if isinstance(family, DB.Family) and _family_category_id(family) == int(BuiltInCategory.OST_DuctAccessory):
@@ -623,7 +624,7 @@ class QuickDamperWindow(forms.WPFWindow):
         except Exception:
             horizontal_view = False
         links = [
-            element for element in FilteredElementCollector(doc).ToElements()
+            element for element in FilteredElementCollector(doc).WherePasses(DB.ElementClassFilter(DB.RevitLinkInstance)).ToElements()
             if isinstance(element, DB.RevitLinkInstance)
         ]
         _write_log("Checking {} Revit link instances for walls".format(len(links)))
@@ -636,7 +637,7 @@ class QuickDamperWindow(forms.WPFWindow):
                     continue
                 transform = link.GetTotalTransform() if hasattr(link, "GetTotalTransform") else link.GetTransform()
                 walls = [
-                    element for element in FilteredElementCollector(doc, target_view_element_id, link.Id).ToElements()
+                    element for element in FilteredElementCollector(doc, target_view_element_id, link.Id).WherePasses(DB.ElementCategoryFilter(DB.ElementId(int(BuiltInCategory.OST_Walls)))).ToElements()
                     if element.Category is not None
                     and element.Category.Id.IntegerValue == int(BuiltInCategory.OST_Walls)
                     and not isinstance(element, DB.ElementType)
@@ -665,7 +666,7 @@ class QuickDamperWindow(forms.WPFWindow):
         target_view_id = int(view_id) if view_id is not None else int(doc.ActiveView.Id.IntegerValue)
         target_view_element_id = DB.ElementId(target_view_id)
         host_walls = [
-            element for element in FilteredElementCollector(doc, target_view_element_id).ToElements()
+            element for element in FilteredElementCollector(doc, target_view_element_id).WherePasses(DB.ElementCategoryFilter(DB.ElementId(int(BuiltInCategory.OST_Walls)))).ToElements()
             if element.Category is not None
             and element.Category.Id.IntegerValue == int(BuiltInCategory.OST_Walls)
             and not isinstance(element, DB.ElementType)
@@ -1177,7 +1178,7 @@ class QuickDamperWindow(forms.WPFWindow):
             self._placement_index = 0
             self._existing_points = []
             symbol_id = self._placement_symbol_id
-            accessories = FilteredElementCollector(doc, DB.ElementId(self._placement_view_id)).ToElements()
+            accessories = FilteredElementCollector(doc, DB.ElementId(self._placement_view_id)).WherePasses(DB.ElementCategoryFilter(DB.ElementId(int(BuiltInCategory.OST_DuctAccessory)))).ToElements()
             for accessory in accessories:
                 try:
                     if (
