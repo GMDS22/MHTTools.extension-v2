@@ -69,6 +69,17 @@ def _element_id(element):
         return str(element.Id)
 
 
+def _collect_category(document, category, view_id=None, link_id=None):
+    if view_id is None:
+        collector = FilteredElementCollector(document)
+    elif link_id is None:
+        collector = FilteredElementCollector(document, view_id)
+    else:
+        collector = FilteredElementCollector(document, view_id, link_id)
+    category_filter = DB.ElementCategoryFilter(DB.ElementId(int(category)))
+    return collector.WherePasses(category_filter).ToElements()
+
+
 def _event_request_accepted(request):
     try:
         return request.ToString() == "Accepted"
@@ -163,18 +174,6 @@ def _wall_family_name(wall):
     return _wall_type_key(wall)
 
 
-def _family_category_id(family):
-    try:
-        category_id = family.FamilyCategoryId
-        return category_id.IntegerValue
-    except Exception:
-        pass
-    try:
-        return family.FamilyCategory.Id.IntegerValue
-    except Exception:
-        return -1
-
-
 def _wall_type_description(wall_type):
     if wall_type is None:
         return ""
@@ -246,15 +245,11 @@ class WallFamilyItem(object):
 
 
 class _DuctSelectionFilter(ISelectionFilter):
-    def __init__(self, allowed_ids):
-        self.allowed_ids = set(allowed_ids or [])
-
     def AllowElement(self, element):
         try:
             return (
                 element.Category is not None
                 and element.Category.Id.IntegerValue == int(BuiltInCategory.OST_DuctCurves)
-                and _element_id(element) in self.allowed_ids
             )
         except Exception:
             return False
@@ -278,13 +273,13 @@ class SymbolItem(object):
 def _capture_preselected_duct_ids():
     try:
         view_id = int(doc.ActiveView.Id.IntegerValue)
-        selected_ids = set(str(element_id.IntegerValue) for element_id in uidoc.Selection.GetElementIds())
         selected_duct_ids = []
-        ducts = FilteredElementCollector(doc, DB.ElementId(view_id)).OfCategory(BuiltInCategory.OST_DuctCurves).WhereElementIsNotElementType().ToElements()
-        for duct in ducts:
-            duct_id = _element_id(duct)
-            if duct_id in selected_ids:
-                selected_duct_ids.append(duct_id)
+        for selected_id in uidoc.Selection.GetElementIds():
+            duct = doc.GetElement(selected_id)
+            if duct is None or duct.Category is None:
+                continue
+            if duct.Category.Id.IntegerValue == int(BuiltInCategory.OST_DuctCurves):
+                selected_duct_ids.append(_element_id(duct))
         return sorted(set(selected_duct_ids)), view_id
     except Exception:
         _write_exception("Could not capture selected duct targets before opening the tool")
@@ -389,7 +384,7 @@ class QuickDamperWindow(forms.WPFWindow):
                 return
             references = active_uidoc.Selection.PickObjects(
                 ObjectType.Element,
-                _DuctSelectionFilter(allowed_ids),
+                _DuctSelectionFilter(),
                 "Pick one or more ducts in the active view, then click Finish.",
             )
             for reference in references or []:
@@ -397,7 +392,7 @@ class QuickDamperWindow(forms.WPFWindow):
                     element_id = str(reference.ElementId.IntegerValue)
                 except Exception:
                     element_id = str(reference.ElementId)
-                if element_id in allowed_ids and element_id not in picked_ids:
+                if element_id not in picked_ids:
                     picked_ids.append(element_id)
             if int(doc.ActiveView.Id.IntegerValue) != pick_view_id:
                 self._invalidate_duct_targets()
@@ -429,17 +424,9 @@ class QuickDamperWindow(forms.WPFWindow):
 
     def _active_view_ducts(self, view_id=None):
         target_view_id = DB.ElementId(int(view_id)) if view_id is not None else doc.ActiveView.Id
-        elements = (
-            FilteredElementCollector(doc, target_view_id)
-            .WherePasses(DB.ElementCategoryFilter(DB.ElementId(int(BuiltInCategory.OST_DuctCurves))))
-            .ToElements()
-        )
-        duct_category_id = int(BuiltInCategory.OST_DuctCurves)
         return [
-            element for element in elements
-            if element.Category is not None
-            and element.Category.Id.IntegerValue == duct_category_id
-            and not isinstance(element, DB.ElementType)
+            element for element in _collect_category(doc, BuiltInCategory.OST_DuctCurves, target_view_id)
+            if not isinstance(element, DB.ElementType)
         ]
 
     def _refresh_wall_types_click(self, sender, args):
@@ -533,14 +520,17 @@ class QuickDamperWindow(forms.WPFWindow):
             pass
 
     def _load_families(self):
-        damper_families = []
-        collector = FilteredElementCollector(doc).WherePasses(DB.ElementClassFilter(DB.Family))
-        for family in collector:
+        families_by_id = {}
+        for symbol in _collect_category(doc, BuiltInCategory.OST_DuctAccessory):
             try:
-                if isinstance(family, DB.Family) and _family_category_id(family) == int(BuiltInCategory.OST_DuctAccessory):
-                    damper_families.append(family)
+                if not isinstance(symbol, DB.FamilySymbol):
+                    continue
+                family = doc.GetElement(symbol.Family.Id)
+                if family:
+                    families_by_id[int(family.Id.IntegerValue)] = family
             except Exception:
                 pass
+        damper_families = list(families_by_id.values())
         damper_families.sort(key=lambda f: _safe_family_name(f).lower())
         self.families = []
         self._symbols_by_family = {}
@@ -624,7 +614,7 @@ class QuickDamperWindow(forms.WPFWindow):
         except Exception:
             horizontal_view = False
         links = [
-            element for element in FilteredElementCollector(doc).WherePasses(DB.ElementClassFilter(DB.RevitLinkInstance)).ToElements()
+            element for element in _collect_category(doc, BuiltInCategory.OST_RvtLinks)
             if isinstance(element, DB.RevitLinkInstance)
         ]
         _write_log("Checking {} Revit link instances for walls".format(len(links)))
@@ -637,10 +627,10 @@ class QuickDamperWindow(forms.WPFWindow):
                     continue
                 transform = link.GetTotalTransform() if hasattr(link, "GetTotalTransform") else link.GetTransform()
                 walls = [
-                    element for element in FilteredElementCollector(doc, target_view_element_id, link.Id).WherePasses(DB.ElementCategoryFilter(DB.ElementId(int(BuiltInCategory.OST_Walls)))).ToElements()
-                    if element.Category is not None
-                    and element.Category.Id.IntegerValue == int(BuiltInCategory.OST_Walls)
-                    and not isinstance(element, DB.ElementType)
+                    element for element in _collect_category(
+                        doc, BuiltInCategory.OST_Walls, target_view_element_id, link.Id
+                    )
+                    if not isinstance(element, DB.ElementType)
                 ]
                 for wall in walls:
                     if crop_bounds is not None:
@@ -666,10 +656,8 @@ class QuickDamperWindow(forms.WPFWindow):
         target_view_id = int(view_id) if view_id is not None else int(doc.ActiveView.Id.IntegerValue)
         target_view_element_id = DB.ElementId(target_view_id)
         host_walls = [
-            element for element in FilteredElementCollector(doc, target_view_element_id).WherePasses(DB.ElementCategoryFilter(DB.ElementId(int(BuiltInCategory.OST_Walls)))).ToElements()
-            if element.Category is not None
-            and element.Category.Id.IntegerValue == int(BuiltInCategory.OST_Walls)
-            and not isinstance(element, DB.ElementType)
+            element for element in _collect_category(doc, BuiltInCategory.OST_Walls, target_view_element_id)
+            if not isinstance(element, DB.ElementType)
         ]
         host_rated = 0
 
@@ -1178,14 +1166,12 @@ class QuickDamperWindow(forms.WPFWindow):
             self._placement_index = 0
             self._existing_points = []
             symbol_id = self._placement_symbol_id
-            accessories = FilteredElementCollector(doc, DB.ElementId(self._placement_view_id)).WherePasses(DB.ElementCategoryFilter(DB.ElementId(int(BuiltInCategory.OST_DuctAccessory)))).ToElements()
+            accessories = _collect_category(
+                doc, BuiltInCategory.OST_DuctAccessory, DB.ElementId(self._placement_view_id)
+            )
             for accessory in accessories:
                 try:
-                    if (
-                        not isinstance(accessory, DB.FamilyInstance)
-                        or accessory.Category is None
-                        or accessory.Category.Id.IntegerValue != int(BuiltInCategory.OST_DuctAccessory)
-                    ):
+                    if not isinstance(accessory, DB.FamilyInstance):
                         continue
                     location = accessory.Location
                     if int(accessory.Symbol.Id.IntegerValue) == symbol_id and hasattr(location, "Point"):
