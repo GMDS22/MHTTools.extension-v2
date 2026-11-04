@@ -25,6 +25,7 @@ from Autodesk.Revit.UI.Selection import ISelectionFilter, ObjectType
 from pyrevit import DB, forms, revit, script
 from pyrevitmep.event import CustomizableEvent
 from System import Action
+from System.Collections.Generic import List
 from System.Windows.Threading import DispatcherPriority
 from System.Windows.Forms import Application as WinFormsApplication
 
@@ -769,12 +770,12 @@ class QuickDamperWindow(forms.WPFWindow):
         batch_error_count = len(self._placement_errors)
         transaction = None
         try:
-            transaction = Transaction(doc, "Place fire smoke dampers (batch)")
+            transaction = Transaction(doc, "Place fire smoke dampers")
             transaction.Start()
             if not self._placement_symbol.IsActive:
                 self._placement_symbol.Activate()
                 _write_log("Activated family symbol {}".format(_element_id(self._placement_symbol)))
-            end_index = min(self._placement_index + 10, len(self._placement_ducts))
+            end_index = min(self._placement_index + 1, len(self._placement_ducts))
             while self._placement_index < end_index and not self.cancelled:
                 duct = self._placement_ducts[self._placement_index]
                 self._placement_index += 1
@@ -814,13 +815,13 @@ class QuickDamperWindow(forms.WPFWindow):
                         if len(self._placement_errors) < 3:
                             self._placement_errors.append("Duct {}: {}".format(_element_id(duct), str(exc)))
             transaction.Commit()
-            _write_log("Committed placement batch through duct {}/{}".format(self._placement_index, len(self._placement_ducts)))
+            _write_log("Committed selected duct {}/{}".format(self._placement_index, len(self._placement_ducts)))
         except Exception as exc:
-            _write_exception("Placement batch failed at duct index {}".format(self._placement_index))
+            _write_exception("Placement failed at selected duct index {}".format(self._placement_index))
             try:
                 if transaction is not None and transaction.HasStarted():
                     transaction.RollBack()
-                    _write_log("Failed placement batch rolled back")
+                    _write_log("Failed selected-duct transaction rolled back")
             except Exception:
                 _write_exception("Could not roll back failed placement batch")
             self._placement_index = batch_start_index
@@ -865,9 +866,10 @@ class QuickDamperWindow(forms.WPFWindow):
         self.progress_text.Text = state
         if state == "Completed":
             self.progress_bar.Value = 100
+        isolation_error = None
         if bool(self.isolate_box.IsChecked) and getattr(self, "_placed_elements", None):
             ids = list(self._placed_elements) + list(self._isolation_ids)
-            self._isolate_placed(ids, getattr(self, "_placement_view_id", None))
+            isolation_error = self._isolate_placed(ids, getattr(self, "_placement_view_id", None))
         summary = "{}: {} ducts checked, {} wall crossings, {} dampers placed, {} duplicates, {} ducts skipped.".format(
             state,
             getattr(self, "_placement_index", 0),
@@ -881,6 +883,10 @@ class QuickDamperWindow(forms.WPFWindow):
             summary += "\nFirst placement error: {}".format(errors[0])
         if error_message:
             summary += "\n{}".format(error_message)
+        if isolation_error:
+            summary += "\nTemporary isolation could not be applied: {}".format(isolation_error)
+        elif bool(self.isolate_box.IsChecked) and getattr(self, "_placed_elements", None):
+            summary += "\nPlaced dampers and related host elements are temporarily isolated in the placement view."
         _write_log("PLACEMENT SUMMARY: {}; errors captured={}".format(summary.replace("\n", " | "), len(errors)))
         summary += "\n\nFull diagnostic log:\n{}".format(LOG_PATH)
         forms.alert(summary, exitscript=False)
@@ -888,12 +894,27 @@ class QuickDamperWindow(forms.WPFWindow):
 
     def _isolate_placed(self, element_ids, view_id=None):
         if not element_ids:
-            return
+            return None
         try:
             target_view = doc.GetElement(view_id) if view_id is not None else doc.ActiveView
-            target_view.IsolateElementsTemporary(list(element_ids))
+            if target_view is None:
+                return "the placement view is no longer available"
+            unique_ids = List[DB.ElementId]()
+            seen_ids = set()
+            for element_id in element_ids:
+                try:
+                    key = element_id.IntegerValue
+                except Exception:
+                    key = str(element_id)
+                if key not in seen_ids:
+                    seen_ids.add(key)
+                    unique_ids.Add(element_id)
+            if unique_ids.Count:
+                target_view.IsolateElementsTemporary(unique_ids)
+            return None
         except Exception as exc:
             logger.debug("Temporary isolation unavailable: {}".format(exc))
+            return str(exc)
 
 
 if not doc:

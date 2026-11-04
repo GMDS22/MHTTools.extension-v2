@@ -13,8 +13,9 @@ Places a selected duct-accessory family at actual duct crossings with explicitly
 ## Behavior
 - Host walls and visible linked walls are collected from the active view; linked geometry is transformed into host coordinates.
 - Placement checks duct-curve/ wall-solid intersections directly.
-- Placement runs in transactions of up to ten ducts. Cancellation keeps completed batches.
+- Each selected duct is processed in its own committed transaction. Cancel is handled between ducts and keeps completed placements.
 - Existing instances of the selected symbol within 50 mm in the active view prevent duplicate placement.
+- When enabled, the isolation option temporarily isolates placed dampers, their host ducts, and intersecting host walls after processing.
 
 ## Safety
 - This tool only places the selected family; it does not determine legal damper requirements.
