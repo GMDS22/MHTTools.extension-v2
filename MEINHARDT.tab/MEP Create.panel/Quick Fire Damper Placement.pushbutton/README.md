@@ -5,6 +5,8 @@ Places a selected duct-accessory family at actual duct crossings with explicitly
 ## Configuration
 - `NWB_Material` / `NWB_MATERIAL` is read from the wall instance and then its type. Only explicit fire, smoke, or FRL classifications are included; ambiguous and explicitly non-rated values are excluded.
 - Select one loaded duct accessory or mechanical family symbol.
+- Select one or more duct targets in Revit before opening the tool, or use **Pick duct targets**. Placement is disabled until at least one active-view duct is targeted.
+- Only the selected duct targets are checked for intersections and processed. A changed active view or missing selected duct stops the run instead of widening its scope.
 - Detected wall families and types are shown in a read-only inventory; all listed candidates are included automatically.
 - Damper family and symbol selections are remembered per open Revit project.
 
