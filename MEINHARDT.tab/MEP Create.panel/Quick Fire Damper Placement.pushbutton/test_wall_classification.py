@@ -9,6 +9,7 @@ class WallClassificationTests(unittest.TestCase):
         self.assertEqual(classify_wall_material("Smoke Rated"), "SMOKE")
         self.assertEqual(classify_wall_material("Fire Rated / Smoke Rated"), "BOTH")
         self.assertEqual(classify_wall_material("FRL 120/120/120"), "FIRE")
+        self.assertEqual(classify_wall_material("FR"), "UNKNOWN")
 
     def test_explicit_non_ratings(self):
         self.assertEqual(classify_wall_material("Non Rated"), "NOT_RATED")

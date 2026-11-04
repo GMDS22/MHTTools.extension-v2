@@ -9,7 +9,7 @@ def classify_wall_material(value):
         return "NOT_RATED"
 
     fire_negative = re.search(
-        r"\b(?:not|non|no)\s+(?:fire|frl|fr)\b|\b(?:fire|frl|fr)\s+(?:not|non)\s+(?:rated|required|applicable)\b",
+        r"\b(?:not|non|no)\s+(?:fire|frl)\b|\b(?:fire|frl)\s+(?:not|non)\s+(?:rated|required|applicable)\b",
         normalized,
     )
     smoke_negative = re.search(
@@ -19,7 +19,7 @@ def classify_wall_material(value):
     generally_not_rated = re.search(r"\b(?:not|non)\s+rated\b|\bunrated\b", normalized)
 
     has_fire = bool(re.search(
-        r"\b(?:frl|fr)\b|\bfire\s+(?:rated|resistant|resistance|rating)\b|\bfirerated\b|\bfireresistant\b",
+        r"\bfrl\b|\bfire\s+(?:rated|resistant|resistance|rating)\b|\bfirerated\b|\bfireresistant\b",
         normalized,
     )) and not fire_negative and not generally_not_rated
     has_smoke = (normalized == "smoke" or bool(re.search(r"\bsmoke\s+(?:rated|resistant|resistance)\b", normalized)))

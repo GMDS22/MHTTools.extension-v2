@@ -33,7 +33,7 @@ DUPLICATE_CROSSING_TOLERANCE = 0.0164042
 THIS_DIR = os.path.dirname(__file__)
 if THIS_DIR not in sys.path:
     sys.path.insert(0, THIS_DIR)
-from wall_classification import is_rated_wall_material
+from wall_classification import classify_wall_material
 
 doc = revit.doc
 uidoc = revit.uidoc
@@ -69,13 +69,16 @@ def _element_id(element):
         return str(element.Id)
 
 
-def _collect_category(document, category, view_id=None):
+def _collect_category(document, category, view_id=None, outline=None):
     if view_id is None:
         collector = FilteredElementCollector(document)
     else:
         collector = FilteredElementCollector(document, view_id)
     category_filter = DB.ElementCategoryFilter(DB.ElementId(int(category)))
-    return collector.WherePasses(category_filter).ToElements()
+    collector = collector.WherePasses(category_filter)
+    if outline is not None:
+        collector = collector.WherePasses(DB.BoundingBoxIntersectsFilter(outline))
+    return collector.ToElements()
 
 
 def _event_request_accepted(request):
@@ -115,9 +118,9 @@ def _param_text(element, name):
     return ""
 
 
-def _is_rated_wall(wall):
+def _wall_rating(wall):
     value = (_param_text(wall, "NWB_Material") + " " + _param_text(wall, "NWB_MATERIAL")).lower()
-    return is_rated_wall_material(value)
+    return classify_wall_material(value)
 
 
 def _wall_type_key(wall):
@@ -230,16 +233,18 @@ def _safe_family_name(family):
 
 
 class WallFamilyItem(object):
-    def __init__(self, key, family_name, type_keys, type_names, sources, wall_count):
+    def __init__(self, key, family_name, type_keys, type_names, sources, ratings, wall_count):
         self.Key = key
         self.Name = family_name
         self.TypeKeys = set(type_keys)
         self.TypeNames = sorted(type_names, key=lambda value: value.lower())
         self.TypeCount = len(self.TypeNames)
         self.Sources = set(sources)
+        self.Ratings = set(ratings)
         self.WallCount = wall_count
         source_label = "host + linked" if len(self.Sources) > 1 else ("linked" if "linked" in self.Sources else "host")
-        self.DisplayName = "{} ({} rated types, {} walls, {})".format(family_name, self.TypeCount, wall_count, source_label)
+        rating_label = "/".join(sorted(self.Ratings))
+        self.DisplayName = "{} ({} | {} types, {} walls, {})".format(family_name, rating_label, self.TypeCount, wall_count, source_label)
 
 
 class _DuctSelectionFilter(ISelectionFilter):
@@ -582,6 +587,31 @@ class QuickDamperWindow(forms.WPFWindow):
             (max(point.X for point in points), max(point.Y for point in points), max(point.Z for point in points)),
         )
 
+    def _duct_scan_outlines(self, duct_ids, transform=None):
+        outlines = []
+        for duct_id in duct_ids or []:
+            try:
+                duct = doc.GetElement(DB.ElementId(int(duct_id)))
+                bounding_box = duct.get_BoundingBox(None) if duct else None
+                bounds = self._bounding_box_bounds(bounding_box, transform)
+                if bounds is None:
+                    continue
+                minimum = DB.XYZ(bounds[0][0] - 0.1, bounds[0][1] - 0.1, bounds[0][2] - 0.1)
+                maximum = DB.XYZ(bounds[1][0] + 0.1, bounds[1][1] + 0.1, bounds[1][2] + 0.1)
+                outlines.append(DB.Outline(minimum, maximum))
+            except Exception:
+                continue
+        return outlines
+
+    def _walls_near_outlines(self, document, view_id, outlines):
+        walls_by_id = {}
+        for outline in outlines:
+            for wall in _collect_category(document, BuiltInCategory.OST_Walls, view_id, outline):
+                if isinstance(wall, DB.ElementType):
+                    continue
+                walls_by_id[_element_id(wall)] = wall
+        return list(walls_by_id.values())
+
     def _active_crop_bounds(self, view):
         try:
             if not view.CropBoxActive:
@@ -607,6 +637,10 @@ class QuickDamperWindow(forms.WPFWindow):
         target_view_element_id = DB.ElementId(target_view_id)
         target_view = doc.GetElement(target_view_element_id)
         crop_bounds = self._active_crop_bounds(target_view)
+        duct_outlines = self._duct_scan_outlines(self._picked_duct_ids)
+        if not duct_outlines:
+            _write_log("Linked wall scan skipped: no selected ducts with usable bounds")
+            return records
         try:
             horizontal_view = abs(target_view.ViewDirection.Z) > 0.9
         except Exception:
@@ -624,10 +658,8 @@ class QuickDamperWindow(forms.WPFWindow):
                 if not linked_doc:
                     continue
                 transform = link.GetTotalTransform() if hasattr(link, "GetTotalTransform") else link.GetTransform()
-                walls = [
-                    element for element in _collect_category(linked_doc, BuiltInCategory.OST_Walls)
-                    if not isinstance(element, DB.ElementType)
-                ]
+                link_outlines = self._duct_scan_outlines(self._picked_duct_ids, transform.Inverse)
+                walls = self._walls_near_outlines(linked_doc, None, link_outlines)
                 _write_log("Link '{}' wall candidates before view crop: {}".format(linked_doc.Title, len(walls)))
                 for wall in walls:
                     if crop_bounds is not None:
@@ -652,13 +684,11 @@ class QuickDamperWindow(forms.WPFWindow):
         self._wall_records = []
         target_view_id = int(view_id) if view_id is not None else int(doc.ActiveView.Id.IntegerValue)
         target_view_element_id = DB.ElementId(target_view_id)
-        host_walls = [
-            element for element in _collect_category(doc, BuiltInCategory.OST_Walls, target_view_element_id)
-            if not isinstance(element, DB.ElementType)
-        ]
+        duct_outlines = self._duct_scan_outlines(self._picked_duct_ids)
+        host_walls = self._walls_near_outlines(doc, target_view_element_id, duct_outlines)
         host_rated = 0
 
-        def add_rated_wall(wall, transform, source_name, source_model=None, placement_candidate=True, link_id=None):
+        def add_rated_wall(wall, rating, source_name, source_model=None, placement_candidate=True, link_id=None):
             family_name = _wall_family_name(wall)
             family_key = family_name.strip().lower()
             if not family_key:
@@ -667,11 +697,13 @@ class QuickDamperWindow(forms.WPFWindow):
             wall_document = getattr(wall, "Document", None)
             model_name = source_model or getattr(wall_document, "Title", "Host model")
             type_label = "{} [{}]".format(type_key, model_name) if source_name == "linked" else type_key
-            group = family_groups.setdefault(family_key, {"name": family_name, "types": set(), "type_names": set(), "sources": set(), "wall_ids": set()})
+            type_label = "{} ({})".format(type_label, rating)
+            group = family_groups.setdefault(family_key, {"name": family_name, "types": set(), "type_names": set(), "sources": set(), "ratings": set(), "wall_ids": set()})
             if type_key:
                 group["types"].add(type_key)
                 group["type_names"].add(type_label)
             group["sources"].add(source_name)
+            group["ratings"].add(rating)
             try:
                 wall_identity = "{}:{}".format(model_name, wall.UniqueId)
             except Exception:
@@ -691,18 +723,20 @@ class QuickDamperWindow(forms.WPFWindow):
                 self._wall_records.append((wall_id, link_id_value, source_name))
 
         for wall in host_walls:
-            if _is_rated_wall(wall):
+            rating = _wall_rating(wall)
+            if rating in ("FIRE", "SMOKE", "BOTH"):
                 host_rated += 1
-                add_rated_wall(wall, Transform.Identity, "host")
+                add_rated_wall(wall, rating, "host")
 
         for wall, link_id, source_name in self._linked_architecture_walls(target_view_id):
-            if _is_rated_wall(wall):
-                add_rated_wall(wall, None, "linked", source_name, link_id=link_id)
+            rating = _wall_rating(wall)
+            if rating in ("FIRE", "SMOKE", "BOTH"):
+                add_rated_wall(wall, rating, "linked", source_name, link_id=link_id)
 
         self.wall_families = []
         for family_key in sorted(family_groups):
             group = family_groups[family_key]
-            self.wall_families.append(WallFamilyItem(family_key, group["name"], group["types"], group["type_names"], group["sources"], len(group["wall_ids"])))
+            self.wall_families.append(WallFamilyItem(family_key, group["name"], group["types"], group["type_names"], group["sources"], group["ratings"], len(group["wall_ids"])))
         self.wall_families_box.ItemsSource = self.wall_families
         rated_type_count = sum(item.TypeCount for item in self.wall_families)
         self.status_text.Text = "{} families | {} rated types | {} in-view walls".format(len(self.wall_families), rated_type_count, len(self._wall_records))
@@ -797,7 +831,6 @@ class QuickDamperWindow(forms.WPFWindow):
     def _geometry_solids(self, element):
         result = []
         element_id = _element_id(element)
-        _write_log("GEOMETRY BEGIN: wall {}".format(element_id))
         try:
             geometry = element.get_Geometry(Options())
             for obj in geometry:
@@ -812,8 +845,7 @@ class QuickDamperWindow(forms.WPFWindow):
         except Exception:
             _write_exception("Geometry extraction failed for element {}".format(element_id))
         if not result:
-            _write_log("WARNING: element {} returned no solid geometry".format(element_id))
-        _write_log("GEOMETRY END: wall {} | solids={}".format(element_id, len(result)))
+            _write_log("WARNING: wall {} returned no solid geometry".format(element_id))
         return result
 
     def _schedule_placement_callback(self, callback, error_context):
@@ -889,12 +921,14 @@ class QuickDamperWindow(forms.WPFWindow):
                 self._schedule_placement_callback(self._place_current_duct, "Could not continue after a duct without a curve")
                 return
 
-            end_index = min(self._wall_scan_index + 10, len(self._wall_records))
+            end_index = min(self._wall_scan_index + 1, len(self._wall_records))
             intersection_options = SolidCurveIntersectionOptions()
             intersection_options.ResultType = SolidCurveIntersectionMode.CurveSegmentsInside
             for record_index in range(self._wall_scan_index, end_index):
+                if self.cancelled:
+                    self._finish_placement("Cancelled")
+                    return
                 wall_id, link_id, source = self._wall_records[record_index]
-                _write_log("WALL CHECK BEGIN: duct {} | wall {} | source {}".format(self._current_duct_id, wall_id, source))
                 transform = Transform.Identity
                 try:
                     if link_id is not None:
@@ -918,6 +952,9 @@ class QuickDamperWindow(forms.WPFWindow):
                     continue
 
                 for wall_solid in self._geometry_solids(wall):
+                    if self.cancelled:
+                        self._finish_placement("Cancelled")
+                        return
                     try:
                         transformed = wall_solid
                         if transform is not None and transform != Transform.Identity:
@@ -937,8 +974,6 @@ class QuickDamperWindow(forms.WPFWindow):
                         raise
                     except Exception:
                         _write_exception("Curve/solid intersection failed for duct {} and wall {}".format(self._current_duct_id, wall_id))
-                _write_log("WALL CHECK END: duct {} | wall {}".format(self._current_duct_id, wall_id))
-
             self._wall_scan_index = end_index
             self.progress_text.Text = "Duct {}/{} | rated walls {}/{}".format(self._placement_index + 1, len(self._placement_ducts), end_index, len(self._wall_records))
             if self._wall_scan_index < len(self._wall_records):
