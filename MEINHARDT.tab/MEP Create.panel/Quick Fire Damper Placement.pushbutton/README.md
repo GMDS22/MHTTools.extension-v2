@@ -1,19 +1,18 @@
 # Quick Fire / Smoke Damper Placement
 
-Places a selected duct-accessory family at actual duct crossings with selected rated wall types visible or used in the active view.
+Places a selected duct-accessory family at actual duct crossings with explicitly rated walls in the active view.
 
 ## Configuration
-- `NWB_Material` is used on each wall or wall type to identify fire, smoke, and fire/smoke values.
+- `NWB_Material` / `NWB_MATERIAL` is read from the wall instance and then its type. Only explicit fire, smoke, or FRL classifications are included; ambiguous and explicitly non-rated values are excluded.
 - Select one loaded duct accessory or mechanical family symbol.
-- Select multiple wall types from the active-view list.
-- Family, symbol, and wall-type selections are remembered per open Revit project.
+- Detected wall families and types are shown in a read-only inventory; all listed candidates are included automatically.
+- Damper family and symbol selections are remembered per open Revit project.
 
 ## Behavior
-- Host walls are collected from the active view.
-- Loaded architectural links are scanned for matching wall types and transformed into host coordinates.
-- Bounding-box checks are performed before solid intersections.
-- Placement runs in one transaction.
-- Existing accessories can prevent duplicate placement where supported.
+- Host walls and visible linked walls are collected from the active view; linked geometry is transformed into host coordinates.
+- Placement checks duct-curve/ wall-solid intersections directly.
+- Placement runs in transactions of up to ten ducts. Cancellation keeps completed batches.
+- Existing instances of the selected symbol within 50 mm in the active view prevent duplicate placement.
 
 ## Safety
 - This tool only places the selected family; it does not determine legal damper requirements.
