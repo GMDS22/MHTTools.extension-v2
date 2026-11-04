@@ -19,7 +19,7 @@ from Autodesk.Revit.DB import (
     Options, SolidCurveIntersectionMode, SolidCurveIntersectionOptions, SolidUtils, Transform
 )
 from Autodesk.Revit.DB.Structure import StructuralType as RevitStructuralType
-from Autodesk.Revit.Exceptions import OperationCanceledException
+from Autodesk.Revit.Exceptions import OperationCanceledException, RegenerationFailedException
 from Autodesk.Revit.UI.Selection import ISelectionFilter, ObjectType
 from pyrevit import DB, forms, revit, script
 from pyrevitmep.event import CustomizableEvent
@@ -67,6 +67,13 @@ def _element_id(element):
         return str(element.Id.IntegerValue)
     except Exception:
         return str(element.Id)
+
+
+def _event_request_accepted(request):
+    try:
+        return request.ToString() == "Accepted"
+    except Exception:
+        return str(request) == "Accepted"
 
 
 def _param_text(element, name):
@@ -407,6 +414,8 @@ class QuickDamperWindow(forms.WPFWindow):
         except OperationCanceledException:
             self.status_text.Text = "Duct pick cancelled; {} existing targets kept".format(len(previous_ids))
             _write_log("Duct pick cancelled; retained {} prior picks".format(len(previous_ids or [])))
+        except RegenerationFailedException:
+            raise
         except Exception as exc:
             _write_exception("Interactive duct pick failed")
             forms.alert("Could not pick ducts: {}\n\nDetails saved to:\n{}".format(exc, LOG_PATH), exitscript=False)
@@ -431,6 +440,8 @@ class QuickDamperWindow(forms.WPFWindow):
                 self.status_text.Text = "Return to the source project to refresh wall candidates"
                 return
             self._refresh_wall_types()
+        except RegenerationFailedException:
+            raise
         except Exception as exc:
             _write_exception("Rated wall family refresh failed")
             forms.alert("Could not refresh wall families: {}\n\nDetails saved to:\n{}".format(exc, LOG_PATH), exitscript=False)
@@ -446,7 +457,9 @@ class QuickDamperWindow(forms.WPFWindow):
         self.refresh_button.IsEnabled = False
         self.place_button.IsEnabled = False
         try:
-            self._utility_event.raise_event(action)
+            request = self._utility_event.raise_event(action)
+            if not _event_request_accepted(request):
+                raise RuntimeError("Revit did not accept the requested ExternalEvent ({})".format(request))
         except Exception as exc:
             _write_exception("Could not queue modeless utility action")
             self._finish_utility_action()
@@ -473,6 +486,9 @@ class QuickDamperWindow(forms.WPFWindow):
     def _cancel(self, sender, args):
         if self._utility_action_running:
             self.status_text.Text = "Please wait for the Revit selection/refresh to finish."
+            return
+        if getattr(self, "_commit_pending", False):
+            self.Close()
             return
         self.cancelled = True
         if not getattr(self, "_placement_running", False):
@@ -617,6 +633,8 @@ class QuickDamperWindow(forms.WPFWindow):
                             _write_log("Skipped linked wall {} from '{}': outside active view crop or has no bounding box".format(_element_id(wall), linked_doc.Title))
                             continue
                     records.append((wall, link.Id, linked_doc.Title))
+            except RegenerationFailedException:
+                raise
             except Exception:
                 _write_exception("Linked wall collection failed for link '{}'".format(getattr(link, "Name", "<unknown>")))
                 logger.debug("Link wall collection skipped")
@@ -780,6 +798,8 @@ class QuickDamperWindow(forms.WPFWindow):
                     for solid in obj.GetInstanceGeometry():
                         if isinstance(solid, DB.Solid) and solid.Volume > 1e-9:
                             result.append(solid)
+        except RegenerationFailedException:
+            raise
         except Exception:
             _write_exception("Geometry extraction failed for element {}".format(element_id))
         if not result:
@@ -790,7 +810,9 @@ class QuickDamperWindow(forms.WPFWindow):
     def _schedule_placement_callback(self, callback, error_context):
         def raise_callback():
             try:
-                self._revit_event.raise_event(self._run_placement_callback, callback, error_context)
+                request = self._revit_event.raise_event(self._run_placement_callback, callback, error_context)
+                if not _event_request_accepted(request):
+                    self._handle_placement_queue_failure(error_context, "Revit rejected ExternalEvent request ({})".format(request))
             except Exception as exc:
                 _write_exception(error_context)
                 self._handle_placement_queue_failure(error_context, exc)
@@ -807,6 +829,8 @@ class QuickDamperWindow(forms.WPFWindow):
     def _run_placement_callback(self, callback, error_context):
         try:
             callback()
+        except RegenerationFailedException:
+            raise
         except Exception as exc:
             _write_exception(error_context)
             self._finish_placement("Failed", "Placement callback failed: {}".format(exc))
@@ -878,6 +902,8 @@ class QuickDamperWindow(forms.WPFWindow):
                         _write_log("Skipped wall {} from '{}': element is no longer available".format(wall_id, source))
                         continue
                     wall_key = _wall_type_key(wall)
+                except RegenerationFailedException:
+                    raise
                 except Exception:
                     _write_exception("Could not reacquire rated wall {} from '{}'".format(wall_id, source))
                     continue
@@ -898,6 +924,8 @@ class QuickDamperWindow(forms.WPFWindow):
                             parameter = float(projection.Parameter) if projection else 0.0
                             self._pending_crossings.append((parameter, coordinates[0], coordinates[1], coordinates[2], wall_id, source))
                             _write_log("CLASH: duct {} with wall type '{}' from '{}' at ({:.3f}, {:.3f}, {:.3f})".format(self._current_duct_id, wall_key, source, point.X, point.Y, point.Z))
+                    except RegenerationFailedException:
+                        raise
                     except Exception:
                         _write_exception("Curve/solid intersection failed for duct {} and wall {}".format(self._current_duct_id, wall_id))
                 _write_log("WALL CHECK END: duct {} | wall {}".format(self._current_duct_id, wall_id))
@@ -909,6 +937,8 @@ class QuickDamperWindow(forms.WPFWindow):
             else:
                 self._pending_crossings.sort(key=lambda item: item[0])
                 self._schedule_placement_callback(self._place_current_duct, "Could not continue selected duct placement")
+        except RegenerationFailedException:
+            raise
         except Exception as exc:
             _write_exception("Wall intersection scan failed for duct {}".format(self._current_duct_id))
             self._finish_placement("Failed", "Wall intersection checks stopped: {}".format(exc))
@@ -956,39 +986,49 @@ class QuickDamperWindow(forms.WPFWindow):
 
             if placements:
                 transaction = Transaction(doc, "Place fire smoke dampers")
+                try:
+                    failure_options = transaction.GetFailureHandlingOptions()
+                    failure_options.SetForcedModalHandling(True)
+                    transaction.SetFailureHandlingOptions(failure_options)
+                except RegenerationFailedException:
+                    raise
+                except Exception as exc:
+                    _write_log("Could not force modal transaction failure handling: {}".format(exc))
                 transaction.Start()
                 if not symbol.IsActive:
                     symbol.Activate()
                     _write_log("Activated family symbol {}".format(self._placement_symbol_id))
                 for coordinates, wall_id, source in placements:
                     location = DB.XYZ(coordinates[0], coordinates[1], coordinates[2])
-                    try:
-                        try:
-                            instance = doc.Create.NewFamilyInstance(location, symbol, duct, RevitStructuralType.NonStructural)
-                        except Exception:
-                            _write_exception("Duct-hosted placement overload failed for duct {} and symbol {}".format(duct_id, self._placement_symbol_id))
-                            level = doc.GetElement(duct.LevelId)
-                            instance = doc.Create.NewFamilyInstance(location, symbol, duct, level, RevitStructuralType.NonStructural)
-                        if instance:
-                            local_placed_ids.append(int(instance.Id.IntegerValue))
-                            local_isolation_ids.append(int(duct.Id.IntegerValue))
-                            if source == "host":
-                                local_isolation_ids.append(int(wall_id))
-                            local_points.append(coordinates)
-                            _write_log("Placed damper: duct={}, instance={}".format(duct_id, int(instance.Id.IntegerValue)))
-                        else:
-                            local_skipped += 1
-                    except Exception as exc:
-                        local_skipped += 1
-                        _write_exception("All placement overloads failed for duct {} and symbol {}: {}".format(duct_id, self._placement_symbol_id, exc))
-                        if len(self._placement_errors) + len(local_errors) < 3:
-                            local_errors.append("Duct {}: {}".format(duct_id, str(exc)))
-                transaction.Commit()
+                    instance = doc.Create.NewFamilyInstance(location, symbol, duct, RevitStructuralType.NonStructural)
+                    if instance is None:
+                        raise RuntimeError("Revit returned no instance for crossing wall {}".format(wall_id))
+                    local_placed_ids.append(int(instance.Id.IntegerValue))
+                    local_isolation_ids.append(int(duct.Id.IntegerValue))
+                    if source == "host":
+                        local_isolation_ids.append(int(wall_id))
+                    local_points.append(coordinates)
+                    _write_log("Placed damper: duct={}, instance={}".format(duct_id, int(instance.Id.IntegerValue)))
+                commit_status = transaction.Commit()
+                if commit_status == DB.TransactionStatus.Pending:
+                    self._commit_pending = True
+                    self._placement_running = False
+                    self.place_button.IsEnabled = False
+                    self.cancel_button.IsEnabled = True
+                    self.cancel_button.Content = "Close"
+                    self.progress_text.Text = "Revit is resolving transaction failures; this duct was not counted"
+                    _write_log("TRANSACTION PENDING: selected duct {}; waiting for Revit failure resolution".format(duct_id))
+                    return
+                if commit_status != DB.TransactionStatus.Committed:
+                    raise RuntimeError("Duct transaction did not commit (status: {})".format(commit_status))
                 _write_log("Committed selected duct {}/{}".format(self._placement_index + 1, len(self._placement_ducts)))
+        except RegenerationFailedException:
+            _write_exception("Fatal Revit regeneration failure while placing duct {}".format(duct_id))
+            raise
         except Exception as exc:
             _write_exception("Placement failed at selected duct {}".format(duct_id))
             try:
-                if transaction is not None and transaction.HasStarted():
+                if transaction is not None and transaction.GetStatus() == DB.TransactionStatus.Started:
                     transaction.RollBack()
                     _write_log("Failed transaction rolled back for selected duct {}".format(duct_id))
             except Exception:
@@ -1054,7 +1094,9 @@ class QuickDamperWindow(forms.WPFWindow):
         self.progress_text.Text = "Starting..."
         _write_log("=" * 72)
         try:
-            self._revit_event.raise_event(self._run_placement_callback, self._begin_placement, "Could not start placement callback")
+            request = self._revit_event.raise_event(self._run_placement_callback, self._begin_placement, "Could not start placement callback")
+            if not _event_request_accepted(request):
+                raise RuntimeError("Revit rejected the initial placement ExternalEvent ({})".format(request))
         except Exception as exc:
             _write_exception("Could not queue placement ExternalEvent")
             self._handle_placement_queue_failure("Could not queue placement ExternalEvent", exc)
@@ -1085,6 +1127,8 @@ class QuickDamperWindow(forms.WPFWindow):
                 self._finish_placement("Failed", "No explicitly rated walls were found in this view. Check the NWB_Material value and linked model visibility.")
                 return
             self._schedule_placement_callback(self._collect_placement_targets, "Could not continue selected duct preparation")
+        except RegenerationFailedException:
+            raise
         except Exception as exc:
             _write_exception("Could not initialize placement run")
             self._finish_placement("Failed", "Placement initialization failed: {}".format(exc))
@@ -1125,6 +1169,8 @@ class QuickDamperWindow(forms.WPFWindow):
                 self._finish_placement("Completed")
                 return
             self._schedule_placement_callback(self._process_placement_batch, "Could not queue first selected duct")
+        except RegenerationFailedException:
+            raise
         except Exception as exc:
             _write_exception("Could not collect selected duct targets")
             self._finish_placement("Failed", "Could not prepare selected duct targets: {}".format(exc))
@@ -1201,6 +1247,8 @@ class QuickDamperWindow(forms.WPFWindow):
             if unique_ids.Count:
                 target_view.IsolateElementsTemporary(unique_ids)
             return None
+        except RegenerationFailedException:
+            raise
         except Exception as exc:
             logger.debug("Temporary isolation unavailable: {}".format(exc))
             return str(exc)
