@@ -214,6 +214,7 @@ class WallFamilyItem(object):
         self.TypeKeys = set(type_keys)
         self.TypeNames = sorted(type_names, key=lambda value: value.lower())
         self.TypeCount = len(self.TypeNames)
+        self.TypeSummary = "\n".join(["    - {}".format(type_name) for type_name in self.TypeNames])
         self.Sources = set(sources)
         self.WallCount = wall_count
         self.IsChecked = is_checked
@@ -476,9 +477,11 @@ class QuickDamperWindow(forms.WPFWindow):
             self.wall_families.append(WallFamilyItem(family_key, group["name"], group["types"], group["type_names"], group["sources"], len(group["wall_ids"]), is_checked))
         self.wall_families_box.ItemsSource = self.wall_families
         linked_rated_total = sum(linked_inventory_counts.values())
-        linked_type_count = sum(len(group["types"]) for group in family_groups.values())
+        linked_type_count = sum(len(group["type_names"]) for group in family_groups.values())
         self.status_text.Text = "{} families | {} rated types | {} linked walls".format(len(self.wall_families), linked_type_count, linked_rated_total)
         _write_log("Wall inventory: {} host-view walls / {} rated; {} link models / {} rated architectural walls; {} rated types; {} families; {} placement records".format(len(host_walls), host_rated, len(linked_inventory_counts), linked_rated_total, linked_type_count, len(self.wall_families), len(self._wall_records)))
+        for item in self.wall_families:
+            _write_log("Wall family choice '{}': {} types | {} walls | {}".format(item.Name, item.TypeCount, item.WallCount, "; ".join(item.TypeNames)))
         if not self.wall_families:
             _write_log("WARNING: no rated walls found; check NWB_Material/NWB_MATERIAL values and active view visibility")
 
