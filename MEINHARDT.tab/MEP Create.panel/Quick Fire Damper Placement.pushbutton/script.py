@@ -18,10 +18,11 @@ from Autodesk.Revit.DB import (
     Options, SolidCurveIntersectionMode, SolidCurveIntersectionOptions, SolidUtils, Transform
 )
 from Autodesk.Revit.DB.Structure import StructuralType as RevitStructuralType
+from Autodesk.Revit.Exceptions import OperationCanceledException
+from Autodesk.Revit.UI.Selection import ISelectionFilter, ObjectType
 from pyrevit import DB, forms, revit, script
 from pyrevitmep.event import CustomizableEvent
 from System import Action
-from System.Collections.Generic import List
 from System.Windows.Threading import DispatcherPriority
 
 TOOL_VERSION = "1.0"
@@ -214,12 +215,29 @@ class WallFamilyItem(object):
         self.TypeKeys = set(type_keys)
         self.TypeNames = sorted(type_names, key=lambda value: value.lower())
         self.TypeCount = len(self.TypeNames)
-        self.TypeSummary = "\n".join(["    - {}".format(type_name) for type_name in self.TypeNames])
         self.Sources = set(sources)
         self.WallCount = wall_count
         self.IsChecked = is_checked
         source_label = "host + linked" if len(self.Sources) > 1 else ("linked" if "linked" in self.Sources else "host")
         self.DisplayName = "{} ({} rated types, {} walls, {})".format(family_name, self.TypeCount, wall_count, source_label)
+
+
+class _DuctSelectionFilter(ISelectionFilter):
+    def __init__(self, allowed_ids):
+        self.allowed_ids = set(allowed_ids or [])
+
+    def AllowElement(self, element):
+        try:
+            return (
+                element.Category is not None
+                and element.Category.Id.IntegerValue == int(BuiltInCategory.OST_DuctCurves)
+                and _element_id(element) in self.allowed_ids
+            )
+        except Exception:
+            return False
+
+    def AllowReference(self, reference, position):
+        return False
 
 
 class FamilyItem(object):
@@ -247,6 +265,7 @@ class QuickDamperWindow(forms.WPFWindow):
         self.families = []
         self._symbols_by_family = {}
         self._wall_records = []
+        self._picked_duct_ids = None
         self.cancelled = False
         self._placement_running = False
         self.cancel_button.Click += self._cancel
@@ -257,26 +276,72 @@ class QuickDamperWindow(forms.WPFWindow):
         self.clear_button.Click += lambda s, a: [setattr(item, "IsChecked", False) for item in (self.wall_families_box.ItemsSource or [])]
         self.refresh_button.Click += self._refresh_wall_types_click
         self.select_ducts_button.Click += self._select_active_view_ducts
+        self.use_all_ducts_button.Click += self._use_all_active_view_ducts
         self._load_families()
         self._refresh_wall_types()
         self._restore_state()
         _write_log("Initial UI population complete: {} damper families, {} rated wall families".format(len(self.families), len(self.wall_families)))
 
     def _select_active_view_ducts(self, sender, args):
-        self._queue_utility_action(self._select_active_view_ducts_api)
+        self._queue_utility_action(self._pick_active_view_ducts_api)
 
-    def _select_active_view_ducts_api(self):
+    def _pick_active_view_ducts_api(self):
+        picked_ids = []
+        previous_ids = self._picked_duct_ids
+        self.Hide()
         try:
             ducts = self._active_view_ducts()
-            duct_ids = [duct.Id for duct in ducts]
-            uidoc.Selection.SetElementIds(List[DB.ElementId](duct_ids))
-            self.status_text.Text = "Selected {} ducts in active view".format(len(duct_ids))
-            _write_log("Selected {} duct curves from active view '{}'".format(len(duct_ids), doc.ActiveView.Name))
-            if not duct_ids:
+            allowed_ids = set(_element_id(duct) for duct in ducts)
+            if not allowed_ids:
+                self.status_text.Text = "No ducts in active view"
                 forms.alert("No ducts were found in the active view.", exitscript=False)
+                return
+            references = uidoc.Selection.PickObjects(
+                ObjectType.Element,
+                _DuctSelectionFilter(allowed_ids),
+                "Pick one or more ducts in the active view, then click Finish.",
+            )
+            for reference in references or []:
+                try:
+                    element_id = str(reference.ElementId.IntegerValue)
+                except Exception:
+                    element_id = str(reference.ElementId)
+                if element_id in allowed_ids and element_id not in picked_ids:
+                    picked_ids.append(element_id)
+            if picked_ids:
+                self._picked_duct_ids = picked_ids
+                self.status_text.Text = "Picked {} ducts".format(len(picked_ids))
+                _write_log("User picked {} ducts from active view '{}'".format(len(picked_ids), doc.ActiveView.Name))
+            else:
+                self.status_text.Text = "No ducts picked; previous target set kept"
+                _write_log("Duct pick completed with no elements; previous target set retained")
+        except OperationCanceledException:
+            self.status_text.Text = "Duct pick cancelled; previous target set kept"
+            _write_log("Duct pick cancelled; retained {} prior picks".format(len(previous_ids or [])))
         except Exception as exc:
-            _write_exception("Could not select ducts in the active view")
-            forms.alert("Could not select ducts: {}\n\nDetails saved to:\n{}".format(exc, LOG_PATH), exitscript=False)
+            _write_exception("Interactive duct pick failed")
+            forms.alert("Could not pick ducts: {}\n\nDetails saved to:\n{}".format(exc, LOG_PATH), exitscript=False)
+        finally:
+            self.Show()
+            self.Activate()
+            self._finish_utility_action()
+
+    def _use_all_active_view_ducts(self, sender, args):
+        self._queue_utility_action(self._use_all_active_view_ducts_api)
+
+    def _use_all_active_view_ducts_api(self):
+        try:
+            ducts = self._active_view_ducts()
+            self._picked_duct_ids = None
+            if not ducts:
+                self.status_text.Text = "No ducts in active view"
+                forms.alert("No ducts were found in the active view.", exitscript=False)
+                return
+            self.status_text.Text = "Using all {} ducts in active view".format(len(ducts))
+            _write_log("Cleared manual duct picks; placement will use all {} active-view ducts".format(len(ducts)))
+        except Exception as exc:
+            _write_exception("Could not reset duct scope to active view")
+            forms.alert("Could not load active-view ducts: {}\n\nDetails saved to:\n{}".format(exc, LOG_PATH), exitscript=False)
         finally:
             self._finish_utility_action()
 
@@ -301,6 +366,7 @@ class QuickDamperWindow(forms.WPFWindow):
             return
         self._utility_action_running = True
         self.select_ducts_button.IsEnabled = False
+        self.use_all_ducts_button.IsEnabled = False
         self.refresh_button.IsEnabled = False
         self.place_button.IsEnabled = False
         try:
@@ -313,6 +379,7 @@ class QuickDamperWindow(forms.WPFWindow):
     def _finish_utility_action(self):
         self._utility_action_running = False
         self.select_ducts_button.IsEnabled = True
+        self.use_all_ducts_button.IsEnabled = True
         self.refresh_button.IsEnabled = True
         self.place_button.IsEnabled = True
 
@@ -629,7 +696,7 @@ class QuickDamperWindow(forms.WPFWindow):
         self.cancelled = False
         self.cancel_button.IsEnabled = True
         self.place_button.IsEnabled = False
-        for control in (self.family_box, self.symbol_box, self.wall_families_box, self.select_all_button, self.clear_button, self.refresh_button, self.select_ducts_button):
+        for control in (self.family_box, self.symbol_box, self.wall_families_box, self.select_all_button, self.clear_button, self.refresh_button, self.select_ducts_button, self.use_all_ducts_button):
             control.IsEnabled = False
         self.progress_bar.Value = 0
         self.progress_text.Text = "Starting..."
@@ -657,6 +724,12 @@ class QuickDamperWindow(forms.WPFWindow):
                 self._finish_placement("Failed", "No selected rated wall family is available in the active view.")
                 return
             self._placement_ducts = self._active_view_ducts(self._placement_view_id)
+            if self._picked_duct_ids is not None:
+                picked_ids = set(self._picked_duct_ids)
+                self._placement_ducts = [duct for duct in self._placement_ducts if _element_id(duct) in picked_ids]
+                if not self._placement_ducts:
+                    self._finish_placement("Failed", "The picked ducts are not visible in the current active view. Pick ducts again or choose all view ducts.")
+                    return
             self._placement_index = 0
             self._existing_points = []
             symbol_id = self._placement_symbol.Id
@@ -780,7 +853,7 @@ class QuickDamperWindow(forms.WPFWindow):
         self._placement_running = False
         self.place_button.IsEnabled = True
         self.cancel_button.IsEnabled = True
-        for control in (self.family_box, self.symbol_box, self.wall_families_box, self.select_all_button, self.clear_button, self.refresh_button, self.select_ducts_button):
+        for control in (self.family_box, self.symbol_box, self.wall_families_box, self.select_all_button, self.clear_button, self.refresh_button, self.select_ducts_button, self.use_all_ducts_button):
             control.IsEnabled = True
         self.progress_text.Text = state
         if state == "Completed":
