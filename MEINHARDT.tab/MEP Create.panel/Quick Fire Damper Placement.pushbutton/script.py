@@ -280,8 +280,6 @@ class QuickDamperWindow(forms.WPFWindow):
         self.families = []
         self._symbols_by_family = {}
         self._wall_records = []
-        self._wall_solids = []
-        self._wall_prepare_index = 0
         self._picked_duct_ids = []
         self._picked_view_id = doc.ActiveView.Id if doc else None
         self.cancelled = False
@@ -533,7 +531,7 @@ class QuickDamperWindow(forms.WPFWindow):
                         if not self._bounds_overlap(wall_bounds, crop_bounds, horizontal_view):
                             _write_log("Skipped linked wall {} from '{}': outside active view crop or has no bounding box".format(_element_id(wall), linked_doc.Title))
                             continue
-                    records.append((wall, transform, linked_doc.Title))
+                    records.append((wall, link.Id, linked_doc.Title))
             except Exception:
                 _write_exception("Linked wall collection failed for link '{}'".format(getattr(link, "Name", "<unknown>")))
                 logger.debug("Link wall collection skipped")
@@ -547,7 +545,7 @@ class QuickDamperWindow(forms.WPFWindow):
         host_walls = FilteredElementCollector(doc, target_view_id).OfCategory(BuiltInCategory.OST_Walls).WhereElementIsNotElementType().ToElements()
         host_rated = 0
 
-        def add_rated_wall(wall, transform, source_name, source_model=None, placement_candidate=True):
+        def add_rated_wall(wall, transform, source_name, source_model=None, placement_candidate=True, link_id=None):
             family_name = _wall_family_name(wall)
             family_key = family_name.strip().lower()
             if not family_key:
@@ -567,16 +565,26 @@ class QuickDamperWindow(forms.WPFWindow):
                 wall_identity = "{}:{}".format(model_name, _element_id(wall))
             group["wall_ids"].add(wall_identity)
             if placement_candidate:
-                self._wall_records.append((wall, transform, source_name))
+                try:
+                    wall_id = wall.Id.IntegerValue
+                except Exception:
+                    wall_id = int(str(wall.Id))
+                link_id_value = None
+                if link_id is not None:
+                    try:
+                        link_id_value = link_id.IntegerValue
+                    except Exception:
+                        link_id_value = int(str(link_id))
+                self._wall_records.append((wall_id, link_id_value, source_name))
 
         for wall in host_walls:
             if _is_rated_wall(wall):
                 host_rated += 1
                 add_rated_wall(wall, Transform.Identity, "host")
 
-        for wall, transform, source_name in self._linked_architecture_walls(target_view_id):
+        for wall, link_id, source_name in self._linked_architecture_walls(target_view_id):
             if _is_rated_wall(wall):
-                add_rated_wall(wall, transform, "linked", source_name)
+                add_rated_wall(wall, None, "linked", source_name, link_id=link_id)
 
         self.wall_families = []
         for family_key in sorted(family_groups):
@@ -643,6 +651,8 @@ class QuickDamperWindow(forms.WPFWindow):
 
     def _geometry_solids(self, element):
         result = []
+        element_id = _element_id(element)
+        _write_log("GEOMETRY BEGIN: wall {}".format(element_id))
         try:
             geometry = element.get_Geometry(Options())
             for obj in geometry:
@@ -653,38 +663,11 @@ class QuickDamperWindow(forms.WPFWindow):
                         if isinstance(solid, DB.Solid) and solid.Volume > 1e-9:
                             result.append(solid)
         except Exception:
-            _write_exception("Geometry extraction failed for element {}".format(_element_id(element)))
+            _write_exception("Geometry extraction failed for element {}".format(element_id))
         if not result:
-            _write_log("WARNING: element {} returned no solid geometry".format(_element_id(element)))
+            _write_log("WARNING: element {} returned no solid geometry".format(element_id))
+        _write_log("GEOMETRY END: wall {} | solids={}".format(element_id, len(result)))
         return result
-
-    def _prepare_wall_solids(self):
-        total = len(self._wall_records)
-        if self.cancelled:
-            self._finish_placement("Cancelled")
-            return
-        end_index = min(self._wall_prepare_index + 10, total)
-        while self._wall_prepare_index < end_index:
-            index = self._wall_prepare_index
-            wall, transform, source = self._wall_records[index]
-            self._wall_prepare_index += 1
-            self.progress_text.Text = "Preparing rated wall geometry {}/{}...".format(self._wall_prepare_index, total)
-            for wall_solid in self._geometry_solids(wall):
-                transformed = wall_solid
-                if transform is not None and transform != Transform.Identity:
-                    try:
-                        transformed = SolidUtils.CreateTransformed(wall_solid, transform)
-                    except Exception:
-                        _write_exception("Could not transform linked wall {} from '{}'".format(_element_id(wall), source))
-                        continue
-                self._wall_solids.append((transformed, wall, source))
-        if self._wall_prepare_index < total:
-            self._schedule_placement_callback(self._prepare_wall_solids, "Could not continue rated wall geometry preparation")
-            return
-        if not self._wall_solids:
-            self._finish_placement("Failed", "Rated walls were found, but their geometry could not be read. Check the wall geometry and linked model visibility.")
-            return
-        self._schedule_placement_callback(self._collect_placement_targets, "Could not continue selected duct preparation")
 
     def _schedule_placement_callback(self, callback, error_context):
         try:
@@ -705,19 +688,43 @@ class QuickDamperWindow(forms.WPFWindow):
         tested_walls = len(self._wall_records)
         intersection_options = SolidCurveIntersectionOptions()
         intersection_options.ResultType = SolidCurveIntersectionMode.CurveSegmentsInside
-        for wall_solid, wall, source in self._wall_solids:
-            key = _wall_type_key(wall)
+        for wall_id, link_id, source in self._wall_records:
+            _write_log("WALL CHECK BEGIN: duct {} | wall {} | source {}".format(_element_id(duct), wall_id, source))
+            transform = Transform.Identity
             try:
-                intersections = wall_solid.IntersectWithCurve(location, intersection_options)
-                for segment_index in range(intersections.SegmentCount):
-                    segment = intersections.GetCurveSegment(segment_index)
-                    point = segment.Evaluate(0.5, True)
-                    if any(point.DistanceTo(existing[0]) <= 0.01 for existing in crossings):
+                if link_id is not None:
+                    link = doc.GetElement(DB.ElementId(link_id))
+                    linked_doc = link.GetLinkDocument() if link else None
+                    if linked_doc is None:
+                        _write_log("Skipped wall {} from '{}': link is no longer loaded".format(wall_id, source))
                         continue
-                    crossings.append((point, wall, source))
-                    _write_log("CLASH: duct {} with wall type '{}' from '{}' at ({:.3f}, {:.3f}, {:.3f})".format(_element_id(duct), key, source, point.X, point.Y, point.Z))
+                    wall = linked_doc.GetElement(DB.ElementId(wall_id))
+                    transform = link.GetTotalTransform() if hasattr(link, "GetTotalTransform") else link.GetTransform()
+                else:
+                    wall = doc.GetElement(DB.ElementId(wall_id))
+                if wall is None:
+                    _write_log("Skipped wall {} from '{}': element is no longer available".format(wall_id, source))
+                    continue
+                key = _wall_type_key(wall)
             except Exception:
-                _write_exception("Curve/solid intersection failed for duct {} and wall {}".format(_element_id(duct), _element_id(wall)))
+                _write_exception("Could not reacquire rated wall {} from '{}'".format(wall_id, source))
+                continue
+            for wall_solid in self._geometry_solids(wall):
+                try:
+                    transformed = wall_solid
+                    if transform is not None and transform != Transform.Identity:
+                        transformed = SolidUtils.CreateTransformed(wall_solid, transform)
+                    intersections = transformed.IntersectWithCurve(location, intersection_options)
+                    for segment_index in range(intersections.SegmentCount):
+                        segment = intersections.GetCurveSegment(segment_index)
+                        point = segment.Evaluate(0.5, True)
+                        if any(point.DistanceTo(existing[0]) <= 0.01 for existing in crossings):
+                            continue
+                        crossings.append((point, wall, source))
+                        _write_log("CLASH: duct {} with wall type '{}' from '{}' at ({:.3f}, {:.3f}, {:.3f})".format(_element_id(duct), key, source, point.X, point.Y, point.Z))
+                except Exception:
+                    _write_exception("Curve/solid intersection failed for duct {} and wall {}".format(_element_id(duct), _element_id(wall)))
+            _write_log("WALL CHECK END: duct {} | wall {}".format(_element_id(duct), wall_id))
         def _curve_parameter(hit):
             try:
                 projection = location.Project(hit[0])
@@ -779,9 +786,7 @@ class QuickDamperWindow(forms.WPFWindow):
             if not self._wall_records:
                 self._finish_placement("Failed", "No explicitly rated walls were found in this view. Check the NWB_Material value and linked model visibility.")
                 return
-            self._wall_solids = []
-            self._wall_prepare_index = 0
-            self._prepare_wall_solids()
+            self._schedule_placement_callback(self._collect_placement_targets, "Could not continue selected duct preparation")
         except Exception as exc:
             _write_exception("Could not initialize placement run")
             self._finish_placement("Failed", "Placement initialization failed: {}".format(exc))
