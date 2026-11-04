@@ -69,13 +69,11 @@ def _element_id(element):
         return str(element.Id)
 
 
-def _collect_category(document, category, view_id=None, link_id=None):
+def _collect_category(document, category, view_id=None):
     if view_id is None:
         collector = FilteredElementCollector(document)
-    elif link_id is None:
-        collector = FilteredElementCollector(document, view_id)
     else:
-        collector = FilteredElementCollector(document, view_id, link_id)
+        collector = FilteredElementCollector(document, view_id)
     category_filter = DB.ElementCategoryFilter(DB.ElementId(int(category)))
     return collector.WherePasses(category_filter).ToElements()
 
@@ -627,11 +625,10 @@ class QuickDamperWindow(forms.WPFWindow):
                     continue
                 transform = link.GetTotalTransform() if hasattr(link, "GetTotalTransform") else link.GetTransform()
                 walls = [
-                    element for element in _collect_category(
-                        doc, BuiltInCategory.OST_Walls, target_view_element_id, link.Id
-                    )
+                    element for element in _collect_category(linked_doc, BuiltInCategory.OST_Walls)
                     if not isinstance(element, DB.ElementType)
                 ]
+                _write_log("Link '{}' wall candidates before view crop: {}".format(linked_doc.Title, len(walls)))
                 for wall in walls:
                     if crop_bounds is not None:
                         try:
