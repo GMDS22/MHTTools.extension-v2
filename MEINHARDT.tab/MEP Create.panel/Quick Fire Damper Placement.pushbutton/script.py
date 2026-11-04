@@ -13,7 +13,6 @@ clr.AddReference("System")
 clr.AddReference("WindowsBase")
 clr.AddReference("PresentationCore")
 clr.AddReference("PresentationFramework")
-clr.AddReference("System.Windows.Forms")
 
 from Autodesk.Revit.DB import (
     BuiltInCategory, FilteredElementCollector, Transaction,
@@ -27,9 +26,9 @@ from pyrevitmep.event import CustomizableEvent
 from System import Action
 from System.Collections.Generic import List
 from System.Windows.Threading import DispatcherPriority
-from System.Windows.Forms import Application as WinFormsApplication
 
 TOOL_VERSION = "1.1"
+DUPLICATE_CROSSING_TOLERANCE = 0.0164042
 THIS_DIR = os.path.dirname(__file__)
 if THIS_DIR not in sys.path:
     sys.path.insert(0, THIS_DIR)
@@ -282,6 +281,7 @@ class QuickDamperWindow(forms.WPFWindow):
         self._symbols_by_family = {}
         self._wall_records = []
         self._wall_solids = []
+        self._wall_prepare_index = 0
         self._picked_duct_ids = []
         self._picked_view_id = doc.ActiveView.Id if doc else None
         self.cancelled = False
@@ -471,14 +471,52 @@ class QuickDamperWindow(forms.WPFWindow):
         if symbols:
             self.symbol_box.SelectedIndex = 0
 
+    def _bounding_box_bounds(self, bounding_box, transform=None):
+        if bounding_box is None:
+            return None
+        points = []
+        for x in (bounding_box.Min.X, bounding_box.Max.X):
+            for y in (bounding_box.Min.Y, bounding_box.Max.Y):
+                for z in (bounding_box.Min.Z, bounding_box.Max.Z):
+                    point = DB.XYZ(x, y, z)
+                    points.append(transform.OfPoint(point) if transform is not None else point)
+        return (
+            (min(point.X for point in points), min(point.Y for point in points), min(point.Z for point in points)),
+            (max(point.X for point in points), max(point.Y for point in points), max(point.Z for point in points)),
+        )
+
+    def _active_crop_bounds(self, view):
+        try:
+            if not view.CropBoxActive:
+                return None
+            crop_box = view.CropBox
+            return self._bounding_box_bounds(crop_box, crop_box.Transform)
+        except Exception:
+            _write_exception("Could not read active view crop extents; view-scoped link collection remains in effect")
+            return None
+
+    def _bounds_overlap(self, first, second, horizontal_only=False):
+        if not first or not second:
+            return False
+        axes = (0, 1) if horizontal_only else range(3)
+        for axis in axes:
+            if first[1][axis] < second[0][axis] or second[1][axis] < first[0][axis]:
+                return False
+        return True
+
     def _linked_architecture_walls(self, view_id=None):
         records = []
         target_view_id = view_id if view_id is not None else doc.ActiveView.Id
+        target_view = doc.GetElement(target_view_id)
+        crop_bounds = self._active_crop_bounds(target_view)
+        try:
+            horizontal_view = abs(target_view.ViewDirection.Z) > 0.9
+        except Exception:
+            horizontal_view = False
         links = FilteredElementCollector(doc).OfClass(DB.RevitLinkInstance).ToElements()
         _write_log("Checking {} Revit link instances for walls".format(len(links)))
         for link in links:
             try:
-                target_view = doc.GetElement(target_view_id)
                 if link.IsHidden(target_view):
                     continue
                 linked_doc = link.GetLinkDocument()
@@ -487,6 +525,14 @@ class QuickDamperWindow(forms.WPFWindow):
                 transform = link.GetTotalTransform() if hasattr(link, "GetTotalTransform") else link.GetTransform()
                 walls = FilteredElementCollector(doc, target_view_id, link.Id).OfCategory(BuiltInCategory.OST_Walls).WhereElementIsNotElementType().ToElements()
                 for wall in walls:
+                    if crop_bounds is not None:
+                        try:
+                            wall_bounds = self._bounding_box_bounds(wall.get_BoundingBox(None), transform)
+                        except Exception:
+                            wall_bounds = None
+                        if not self._bounds_overlap(wall_bounds, crop_bounds, horizontal_view):
+                            _write_log("Skipped linked wall {} from '{}': outside active view crop or has no bounding box".format(_element_id(wall), linked_doc.Title))
+                            continue
                     records.append((wall, transform, linked_doc.Title))
             except Exception:
                 _write_exception("Linked wall collection failed for link '{}'".format(getattr(link, "Name", "<unknown>")))
@@ -613,14 +659,16 @@ class QuickDamperWindow(forms.WPFWindow):
         return result
 
     def _prepare_wall_solids(self):
-        self._wall_solids = []
         total = len(self._wall_records)
-        for index, (wall, transform, source) in enumerate(self._wall_records):
-            if index % 10 == 0:
-                self.progress_text.Text = "Preparing rated wall geometry {}/{}...".format(index + 1, total)
-                WinFormsApplication.DoEvents()
-                if self.cancelled:
-                    return False
+        if self.cancelled:
+            self._finish_placement("Cancelled")
+            return
+        end_index = min(self._wall_prepare_index + 10, total)
+        while self._wall_prepare_index < end_index:
+            index = self._wall_prepare_index
+            wall, transform, source = self._wall_records[index]
+            self._wall_prepare_index += 1
+            self.progress_text.Text = "Preparing rated wall geometry {}/{}...".format(self._wall_prepare_index, total)
             for wall_solid in self._geometry_solids(wall):
                 transformed = wall_solid
                 if transform is not None and transform != Transform.Identity:
@@ -630,7 +678,23 @@ class QuickDamperWindow(forms.WPFWindow):
                         _write_exception("Could not transform linked wall {} from '{}'".format(_element_id(wall), source))
                         continue
                 self._wall_solids.append((transformed, wall, source))
-        return not self.cancelled
+        if self._wall_prepare_index < total:
+            self._schedule_placement_callback(self._prepare_wall_solids, "Could not continue rated wall geometry preparation")
+            return
+        if not self._wall_solids:
+            self._finish_placement("Failed", "Rated walls were found, but their geometry could not be read. Check the wall geometry and linked model visibility.")
+            return
+        self._schedule_placement_callback(self._collect_placement_targets, "Could not continue selected duct preparation")
+
+    def _schedule_placement_callback(self, callback, error_context):
+        try:
+            continuation = Action(lambda: self._revit_event.raise_event(callback))
+            self.Dispatcher.BeginInvoke(continuation, DispatcherPriority.Background)
+            return True
+        except Exception as exc:
+            _write_exception(error_context)
+            self._finish_placement("Failed", "Could not continue placement: {}".format(exc))
+            return False
 
     def _clash_points(self, duct):
         location = getattr(duct.Location, "Curve", None)
@@ -711,25 +775,23 @@ class QuickDamperWindow(forms.WPFWindow):
                 return
             self._save_state()
             self.progress_text.Text = "Scanning rated walls in the active view and linked models..."
-            WinFormsApplication.DoEvents()
-            if self.cancelled:
-                self._finish_placement("Cancelled")
-                return
             self._refresh_wall_types(self._placement_view_id)
             if not self._wall_records:
                 self._finish_placement("Failed", "No explicitly rated walls were found in this view. Check the NWB_Material value and linked model visibility.")
                 return
-            if not self._prepare_wall_solids():
-                self._finish_placement("Cancelled")
-                return
-            if not self._wall_solids:
-                self._finish_placement("Failed", "Rated walls were found, but their geometry could not be read. Check the wall geometry and linked model visibility.")
-                return
-            self.progress_text.Text = "Collecting ducts in the active view..."
-            WinFormsApplication.DoEvents()
+            self._wall_solids = []
+            self._wall_prepare_index = 0
+            self._prepare_wall_solids()
+        except Exception as exc:
+            _write_exception("Could not initialize placement run")
+            self._finish_placement("Failed", "Placement initialization failed: {}".format(exc))
+
+    def _collect_placement_targets(self):
+        try:
             if self.cancelled:
                 self._finish_placement("Cancelled")
                 return
+            self.progress_text.Text = "Collecting selected duct targets..."
             self._placement_ducts = self._active_view_ducts(self._placement_view_id)
             picked_ids = set(self._picked_duct_ids)
             self._placement_ducts = [duct for duct in self._placement_ducts if _element_id(duct) in picked_ids]
@@ -753,10 +815,10 @@ class QuickDamperWindow(forms.WPFWindow):
             if not self._placement_ducts:
                 self._finish_placement("Completed")
                 return
-            self._process_placement_batch()
+            self._schedule_placement_callback(self._process_placement_batch, "Could not queue first selected duct")
         except Exception as exc:
-            _write_exception("Could not initialize placement run")
-            self._finish_placement("Failed", "Placement initialization failed: {}".format(exc))
+            _write_exception("Could not collect selected duct targets")
+            self._finish_placement("Failed", "Could not prepare selected duct targets: {}".format(exc))
 
     def _process_placement_batch(self):
         if self.cancelled:
@@ -787,9 +849,9 @@ class QuickDamperWindow(forms.WPFWindow):
                 for location, wall, wall_source in crossings:
                     if self.cancelled:
                         break
-                    if any(location.DistanceTo(point) <= 0.164042 for point in self._existing_points):
+                    if any(location.DistanceTo(point) <= DUPLICATE_CROSSING_TOLERANCE for point in self._existing_points):
                         self._placement_counts["duplicate"] += 1
-                        _write_log("DUPLICATE: selected damper symbol already exists within 50 mm at duct {}".format(_element_id(duct)))
+                        _write_log("DUPLICATE: selected damper symbol already exists at this crossing (5 mm tolerance) on duct {}".format(_element_id(duct)))
                         continue
                     try:
                         try:
@@ -842,18 +904,12 @@ class QuickDamperWindow(forms.WPFWindow):
             self._placement_counts["placed"],
             self._placement_counts["duplicate"],
         )
-        WinFormsApplication.DoEvents()
         if self.cancelled:
             self._finish_placement("Cancelled")
         elif self._placement_index >= len(self._placement_ducts):
             self._finish_placement("Completed")
         else:
-            try:
-                continuation = Action(lambda: self._revit_event.raise_event(self._process_placement_batch))
-                self.Dispatcher.BeginInvoke(continuation, DispatcherPriority.Background)
-            except Exception as exc:
-                _write_exception("Could not schedule next placement batch")
-                self._finish_placement("Failed", "Could not continue placement: {}".format(exc))
+            self._schedule_placement_callback(self._process_placement_batch, "Could not schedule next selected duct")
 
     def _finish_placement(self, state, error_message=None):
         counts = getattr(self, "_placement_counts", {"placed": 0, "skipped": 0, "duplicate": 0, "crossings": 0})

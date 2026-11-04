@@ -11,11 +11,11 @@ Places a selected duct-accessory family at actual duct crossings with explicitly
 - Damper family and symbol selections are remembered per open Revit project.
 
 ## Behavior
-- Host walls and visible linked walls are collected from the active view; linked geometry is transformed into host coordinates.
+- Host walls and visible linked walls are collected from the active view. Linked wall bounds are transformed to host coordinates and checked against the active crop when enabled.
 - Placement checks duct-curve/ wall-solid intersections directly.
-- Each selected duct is processed in its own committed transaction. Cancel is handled between ducts and keeps completed placements.
-- Existing instances of the selected symbol within 50 mm in the active view prevent duplicate placement.
-- When enabled, the isolation option temporarily isolates placed dampers, their host ducts, and intersecting host walls after processing.
+- Rated wall geometry is prepared in small ExternalEvent callbacks, followed by one committed transaction per selected duct. Cancel is handled between callbacks and keeps completed placements.
+- Only existing instances of the selected symbol at the same target crossing (5 mm tolerance) prevent duplicate placement.
+- When enabled, the isolation option temporarily isolates placed dampers, their host ducts, and intersecting host walls in the host model. Linked walls remain visible.
 
 ## Safety
 - This tool only places the selected family; it does not determine legal damper requirements.
