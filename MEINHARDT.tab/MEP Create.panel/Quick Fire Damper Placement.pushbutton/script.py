@@ -208,15 +208,17 @@ def _safe_family_name(family):
 
 
 class WallFamilyItem(object):
-    def __init__(self, key, family_name, type_keys, sources, is_checked=False):
+    def __init__(self, key, family_name, type_keys, type_names, sources, wall_count, is_checked=False):
         self.Key = key
         self.Name = family_name
         self.TypeKeys = set(type_keys)
-        self.TypeCount = len(self.TypeKeys)
+        self.TypeNames = sorted(type_names, key=lambda value: value.lower())
+        self.TypeCount = len(self.TypeNames)
         self.Sources = set(sources)
+        self.WallCount = wall_count
         self.IsChecked = is_checked
         source_label = "host + linked" if len(self.Sources) > 1 else ("linked" if "linked" in self.Sources else "host")
-        self.DisplayName = "{} ({} rated types, {})".format(family_name, self.TypeCount, source_label)
+        self.DisplayName = "{} ({} rated types, {} walls, {})".format(family_name, self.TypeCount, wall_count, source_label)
 
 
 class FamilyItem(object):
@@ -409,17 +411,27 @@ class QuickDamperWindow(forms.WPFWindow):
         host_walls = FilteredElementCollector(doc, target_view_id).OfCategory(BuiltInCategory.OST_Walls).WhereElementIsNotElementType().ToElements()
         host_rated = 0
 
-        def add_rated_wall(wall, transform, source_name):
+        def add_rated_wall(wall, transform, source_name, source_model=None, placement_candidate=True):
             family_name = _wall_family_name(wall)
             family_key = family_name.strip().lower()
             if not family_key:
                 return
             type_key = _wall_type_key(wall)
-            group = family_groups.setdefault(family_key, {"name": family_name, "types": set(), "sources": set()})
+            wall_document = getattr(wall, "Document", None)
+            model_name = source_model or getattr(wall_document, "Title", "Host model")
+            type_label = "{} [{}]".format(type_key, model_name) if source_name == "linked" else type_key
+            group = family_groups.setdefault(family_key, {"name": family_name, "types": set(), "type_names": set(), "sources": set(), "wall_ids": set()})
             if type_key:
                 group["types"].add(type_key)
+                group["type_names"].add(type_label)
             group["sources"].add(source_name)
-            self._wall_records.append((wall, transform, source_name))
+            try:
+                wall_identity = "{}:{}".format(model_name, wall.UniqueId)
+            except Exception:
+                wall_identity = "{}:{}".format(model_name, _element_id(wall))
+            group["wall_ids"].add(wall_identity)
+            if placement_candidate:
+                self._wall_records.append((wall, transform, source_name))
 
         for wall in host_walls:
             if _is_rated_wall(wall):
@@ -428,7 +440,32 @@ class QuickDamperWindow(forms.WPFWindow):
 
         for wall, transform, source_name in self._linked_architecture_walls(target_view_id):
             if _is_rated_wall(wall):
-                add_rated_wall(wall, transform, "linked")
+                add_rated_wall(wall, transform, "linked", source_name)
+
+        linked_inventory_counts = {}
+        try:
+            visible_links = FilteredElementCollector(doc).OfClass(DB.RevitLinkInstance).ToElements()
+        except Exception:
+            visible_links = []
+        target_view = doc.GetElement(target_view_id)
+        for link in visible_links:
+            try:
+                if link.IsHidden(target_view):
+                    continue
+                link_doc = link.GetLinkDocument()
+                if link_doc is None:
+                    continue
+                linked_walls = FilteredElementCollector(link_doc).OfCategory(BuiltInCategory.OST_Walls).WhereElementIsNotElementType().ToElements()
+                rated_count = 0
+                for wall in linked_walls:
+                    if not _is_rated_wall(wall):
+                        continue
+                    rated_count += 1
+                    add_rated_wall(wall, None, "linked", link_doc.Title, placement_candidate=False)
+                linked_inventory_counts[link_doc.Title] = linked_inventory_counts.get(link_doc.Title, 0) + rated_count
+                _write_log("Architectural inventory '{}': {} walls scanned, {} rated".format(link_doc.Title, len(linked_walls), rated_count))
+            except Exception:
+                _write_exception("Could not inventory architectural wall link '{}'".format(getattr(link, "Name", "<unknown>")))
         saved_state = self._load_state().get(doc.Title if doc else "document", {})
         remembered_families = set(saved_state.get("wall_families", []))
         remembered_types = set(saved_state.get("wall_types", []))
@@ -436,10 +473,12 @@ class QuickDamperWindow(forms.WPFWindow):
         for family_key in sorted(family_groups):
             group = family_groups[family_key]
             is_checked = family_key in remembered_families or bool(group["types"].intersection(remembered_types))
-            self.wall_families.append(WallFamilyItem(family_key, group["name"], group["types"], group["sources"], is_checked))
+            self.wall_families.append(WallFamilyItem(family_key, group["name"], group["types"], group["type_names"], group["sources"], len(group["wall_ids"]), is_checked))
         self.wall_families_box.ItemsSource = self.wall_families
-        self.status_text.Text = "{} rated wall families".format(len(self.wall_families))
-        _write_log("Wall scan: {} host walls / {} rated; {} rated wall families; {} matching wall records".format(len(host_walls), host_rated, len(self.wall_families), len(self._wall_records)))
+        linked_rated_total = sum(linked_inventory_counts.values())
+        linked_type_count = sum(len(group["types"]) for group in family_groups.values())
+        self.status_text.Text = "{} families | {} rated types | {} linked walls".format(len(self.wall_families), linked_type_count, linked_rated_total)
+        _write_log("Wall inventory: {} host-view walls / {} rated; {} link models / {} rated architectural walls; {} rated types; {} families; {} placement records".format(len(host_walls), host_rated, len(linked_inventory_counts), linked_rated_total, linked_type_count, len(self.wall_families), len(self._wall_records)))
         if not self.wall_families:
             _write_log("WARNING: no rated walls found; check NWB_Material/NWB_MATERIAL values and active view visibility")
 
@@ -578,7 +617,7 @@ class QuickDamperWindow(forms.WPFWindow):
         self._placement_symbol_name = self.symbol_box.SelectedItem.Name
         self._placement_family_name = self.family_box.SelectedItem.Name
         self._selected_families = selected_families
-        self._placement_counts = {"placed": 0, "skipped": 0, "duplicate": 0}
+        self._placement_counts = {"placed": 0, "skipped": 0, "duplicate": 0, "crossings": 0}
         self._placement_errors = []
         self._placed_elements = []
         self._isolation_ids = []
@@ -603,7 +642,7 @@ class QuickDamperWindow(forms.WPFWindow):
             if self.cancelled:
                 self._finish_placement("Cancelled")
                 return
-            self._placement_counts = {"placed": 0, "skipped": 0, "duplicate": 0}
+            self._placement_counts = {"placed": 0, "skipped": 0, "duplicate": 0, "crossings": 0}
             self._placement_errors = []
             self._placed_elements = []
             self._isolation_ids = []
@@ -659,6 +698,7 @@ class QuickDamperWindow(forms.WPFWindow):
                 duct = self._placement_ducts[self._placement_index]
                 self._placement_index += 1
                 crossings = self._clash_points(duct, self._selected_families)
+                self._placement_counts["crossings"] += len(crossings)
                 if not crossings:
                     self._placement_counts["skipped"] += 1
                     continue
@@ -713,7 +753,13 @@ class QuickDamperWindow(forms.WPFWindow):
 
         percent = int(float(self._placement_index) * 100.0 / float(len(self._placement_ducts)))
         self.progress_bar.Value = percent
-        self.progress_text.Text = "{} / {} ducts".format(self._placement_index, len(self._placement_ducts))
+        self.progress_text.Text = "{}/{} ducts | {} crossings | {} placed | {} duplicates".format(
+            self._placement_index,
+            len(self._placement_ducts),
+            self._placement_counts["crossings"],
+            self._placement_counts["placed"],
+            self._placement_counts["duplicate"],
+        )
         if self.cancelled:
             self._finish_placement("Cancelled")
         elif self._placement_index >= len(self._placement_ducts):
@@ -727,7 +773,7 @@ class QuickDamperWindow(forms.WPFWindow):
                 self._finish_placement("Failed", "Could not continue placement: {}".format(exc))
 
     def _finish_placement(self, state, error_message=None):
-        counts = getattr(self, "_placement_counts", {"placed": 0, "skipped": 0, "duplicate": 0})
+        counts = getattr(self, "_placement_counts", {"placed": 0, "skipped": 0, "duplicate": 0, "crossings": 0})
         self._placement_running = False
         self.place_button.IsEnabled = True
         self.cancel_button.IsEnabled = True
@@ -739,7 +785,14 @@ class QuickDamperWindow(forms.WPFWindow):
         if bool(self.isolate_box.IsChecked) and getattr(self, "_placed_elements", None):
             ids = list(self._placed_elements) + list(self._isolation_ids)
             self._isolate_placed(ids, getattr(self, "_placement_view_id", None))
-        summary = "{}: placed {} dampers. Duplicate {}. Skipped {} ducts.".format(state, counts["placed"], counts["duplicate"], counts["skipped"])
+        summary = "{}: {} ducts checked, {} wall crossings, {} dampers placed, {} duplicates, {} ducts skipped.".format(
+            state,
+            getattr(self, "_placement_index", 0),
+            counts["crossings"],
+            counts["placed"],
+            counts["duplicate"],
+            counts["skipped"],
+        )
         errors = getattr(self, "_placement_errors", [])
         if errors:
             summary += "\nFirst placement error: {}".format(errors[0])
