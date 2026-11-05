@@ -607,18 +607,17 @@ def _existing_symbol_points(document, duct, symbol_id, radius_feet):
     return points
 
 
-def _current_context_matches(expected_document, expected_view_id, expected_uidocument=None):
+def _current_context_matches(expected_document, expected_view_id):
     try:
         current_uidocument = revit.uidoc
         current_document = current_uidocument.Document if current_uidocument else None
-        if expected_uidocument is not None and current_uidocument != expected_uidocument:
-            return False
         if current_document is None or not current_document.IsValidObject:
             return False
         if current_document != expected_document or not expected_document.IsValidObject:
             return False
         return _id_value(current_uidocument.ActiveView.Id) == expected_view_id
-    except Exception:
+    except Exception as exc:
+        logger.warning("Could not verify the active Revit project and view: {}".format(exc))
         return False
 
 
@@ -718,10 +717,10 @@ def _log_post_summary_diagnostics(document, records):
     return diagnostics
 
 
-def _select_placed_instances(document, uidocument, view_id, placed_ids):
+def _select_placed_instances(document, view_id, placed_ids):
     if not placed_ids:
         return None
-    if not _current_context_matches(document, view_id, uidocument):
+    if not _current_context_matches(document, view_id):
         return "The active project or view changed; placed instances were not selected."
 
     selection_ids = List[DB.ElementId]()
@@ -739,7 +738,8 @@ def _select_placed_instances(document, uidocument, view_id, placed_ids):
     if selection_ids.Count == 0:
         return "Committed instances could not be reacquired for selection."
     try:
-        if not _current_context_matches(document, view_id, uidocument):
+        uidocument = revit.uidoc
+        if uidocument is None or not _current_context_matches(document, view_id):
             return "The active project or view changed; placed instances were not selected."
         uidocument.Selection.SetElementIds(selection_ids)
     except Exception as exc:
@@ -776,7 +776,7 @@ def _rollback_subtransaction(subtransaction):
     return False
 
 
-def _place_on_duct(document, duct_id, crossings, symbol_id, radius_feet, view_id, uidocument):
+def _place_on_duct(document, duct_id, crossings, symbol_id, radius_feet, view_id):
     duct = document.GetElement(DB.ElementId(duct_id))
     symbol = document.GetElement(DB.ElementId(symbol_id))
     if duct is None or symbol is None or not _category_is(duct, BuiltInCategory.OST_DuctCurves):
@@ -883,7 +883,7 @@ def _place_on_duct(document, duct_id, crossings, symbol_id, radius_feet, view_id
                             duct_id, crossing["wall_label"], reason
                         )
                     )
-        if not _current_context_matches(document, view_id, uidocument):
+        if not _current_context_matches(document, view_id):
             raise RuntimeError("The active project or view changed before this duct could be committed.")
         status = transaction.Commit()
         if status == DB.TransactionStatus.Pending:
@@ -939,7 +939,7 @@ def main():
         return
     force_all_walls = wall_mode == "All actual wall crossings (force placement)"
 
-    if not _current_context_matches(document, view_id, uidocument):
+    if not _current_context_matches(document, view_id):
         forms.alert("The active project or view changed. Run the tool again in the target view.", exitscript=False)
         return
 
@@ -981,7 +981,7 @@ def main():
     orientation_notes = []
     stopped = False
     for duct_id, crossings in duct_runs:
-        if not _current_context_matches(document, view_id, uidocument):
+        if not _current_context_matches(document, view_id):
             scan_errors.append("The active project or view changed; remaining ducts were not modified.")
             stopped = True
             break
@@ -995,7 +995,6 @@ def main():
                 _id_value(choice.Symbol.Id),
                 radius_feet,
                 view_id,
-                uidocument,
             )
             for record in created_records:
                 committed_record = dict(record)
@@ -1043,7 +1042,6 @@ def main():
     )
     selection_warning = _select_placed_instances(
         document,
-        uidocument,
         view_id,
         [DB.ElementId(element_id) for element_id in persisted_ids],
     )
