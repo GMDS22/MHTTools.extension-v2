@@ -78,10 +78,13 @@ from System.Diagnostics.Process import Start
 from pyrevit import forms, script
 import re
 import datetime
+import traceback
 
 
 uidoc = __revit__.ActiveUIDocument
 doc = uidoc.Document if uidoc else None
+logger = script.get_logger()
+_FORMAT_STARTUP_STAGE = "module initialization"
 
 
 # ─────────────────────────────────────────────────────────────────────────────
@@ -690,6 +693,8 @@ class FORMATWindowV2(forms.WPFWindow):
     _CFG_ALIGN_USE_TB_PARAMS = "align_use_tb_params"
 
     def __init__(self, xaml_name):
+        global _FORMAT_STARTUP_STAGE
+        _FORMAT_STARTUP_STAGE = "loading the FORMAT window XAML"
         forms.WPFWindow.__init__(self, xaml_name)
 
         self._all_sheets               = []
@@ -712,6 +717,7 @@ class FORMATWindowV2(forms.WPFWindow):
         self._is_custom_maximized      = False
         self._restore_bounds           = None
 
+        _FORMAT_STARTUP_STAGE = "applying screen constraints"
         self._apply_screen_constraints()
 
         try:
@@ -720,16 +726,23 @@ class FORMATWindowV2(forms.WPFWindow):
         except Exception:
             pass
 
+        _FORMAT_STARTUP_STAGE = "loading project sheets"
         self._load_all_sheets()
+        _FORMAT_STARTUP_STAGE = "building the sheet picker"
         self._build_tree()
+        _FORMAT_STARTUP_STAGE = "initializing search and selection controls"
         self._init_search_debounce()
         self._init_selection_debounce()
         self._apply_tree_to_ui()
+        _FORMAT_STARTUP_STAGE = "loading parameters and title block choices"
         self._refresh_targets_and_params()
         self._update_window_buttons()
         self.Topmost = False
+        _FORMAT_STARTUP_STAGE = "loading revision choices"
         self._init_revision_ui()
+        _FORMAT_STARTUP_STAGE = "loading saved alignment preferences"
         self._load_align_preferences()
+        _FORMAT_STARTUP_STAGE = "window initialization complete"
 
     def _get_current_screen_work_area(self):
         try:
@@ -2858,7 +2871,20 @@ if __name__ == '__main__':
         forms.alert("FORMAT UI file was not found. The tool was safely stopped before opening.", title=__title__, exitscript=True)
 
     try:
+        _FORMAT_STARTUP_STAGE = "creating the FORMAT window"
         form = FORMATWindowV2("UnifiedEditor.xaml")
+        _FORMAT_STARTUP_STAGE = "showing the FORMAT window"
         form.ShowDialog()
     except Exception as ex:
-        forms.alert("FORMAT could not be opened and was safely stopped.\n\n{}".format(ex), title=__title__, exitscript=True)
+        details = traceback.format_exc()
+        logger.error(
+            "FORMAT failed during {}:\n{}".format(_FORMAT_STARTUP_STAGE, details)
+        )
+        forms.alert(
+            "FORMAT could not be opened and was safely stopped.\n\n"
+            "Stage: {}\n{}\n\nFull traceback was written to the pyRevit output/log.".format(
+                _FORMAT_STARTUP_STAGE, ex
+            ),
+            title=__title__,
+            exitscript=True,
+        )
