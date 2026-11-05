@@ -1,25 +1,17 @@
 # Quick Fire / Smoke Damper Placement
 
-Places a selected duct-accessory family at actual duct crossings with explicitly rated walls in the active view.
+Places a selected Duct Accessory type at actual crossings between selected duct curves and explicitly fire- or smoke-rated walls in the active view.
 
-## Configuration
-- `NWB_Material` / `NWB_MATERIAL` is read from the wall instance and then its type. Only explicit fire, smoke, or FRL classifications are included; ambiguous and explicitly non-rated values are excluded.
-- Select one loaded duct accessory or mechanical family symbol.
-- Set the duplicate radius in millimeters (default 200 mm). The value is remembered per project.
-- Preselect duct curves before launching the tool; those IDs are captured before its window opens. Or use **Pick duct targets** to replace the target set. Canceling the picker keeps the previous target set. Placement is disabled until at least one active-view duct is targeted.
-- Only the selected duct targets are checked for intersections and processed. A changed active view or missing selected duct stops the run instead of widening its scope.
-- Detected wall families and types are shown in a read-only inventory; all listed candidates are included automatically.
-- Damper family and symbol selections are remembered per open Revit project.
-
-## Behavior
-- Host walls and visible linked walls are collected from the active view. Linked wall bounds are transformed to host coordinates and checked against the active crop when enabled.
-- Placement checks duct-curve/ wall-solid intersections directly.
-- Only IDs and numeric coordinates persist between ExternalEvent callbacks. One wall record is checked per callback; walls and geometry are reacquired within each callback. One short transaction is used per selected duct after intersection checks, so Cancel between callbacks keeps completed placements. Rejected event requests stop the run; fatal regeneration failures propagate without fallback API calls; placements are recorded only after a committed transaction.
-- A Revit-process mutex prevents a second Quick Fire Damper window from running concurrently.
-- Before placement, only accessories hosted on the duct being processed are checked. An existing instance of the selected damper symbol within the configured 3D radius of a crossing prevents another placement there.
-- When enabled, the isolation option temporarily isolates placed dampers, their host ducts, and intersecting host walls in the host model. Linked walls remain visible.
+## Workflow
+- Preselect duct curves before running the command. If the preselection has no duct curves, pick duct curves in the active view.
+- Choose a loaded Duct Accessory family type, then enter the duplicate spacing in millimeters (default 200 mm).
+- Only the selected ducts are checked. Nearby host walls are filtered by each duct's bounding box; loaded, visible linked walls are queried in link coordinates and their solids are transformed into host coordinates for intersection checks.
+- `NWB_Material` / `NWB_MATERIAL` is read from the wall instance, falling back to its type. Only explicit fire, smoke, or FRL classifications are included; ambiguous and explicitly non-rated values are excluded.
+- All duct/wall geometry checks complete before any transaction starts. Each duct with placements gets one short rollback-safe transaction; a failed duct is reported and does not prevent later ducts from being attempted.
+- Existing instances of the selected type hosted on the same duct within the configured 3D radius prevent duplicate placement.
 
 ## Safety
-- This tool only places the selected family; it does not determine legal damper requirements.
-- Verify the selected family category and physical placement behavior before production use.
-- Linked models are never modified.
+- The tool only places the selected family; it does not determine legal damper requirements.
+- Verify the selected family's hosting and physical placement behavior before production use.
+- Linked models are read for wall geometry and are never modified.
+- UI prompts and geometry scanning run outside transactions. The active project and view are checked again before each duct transaction commits.

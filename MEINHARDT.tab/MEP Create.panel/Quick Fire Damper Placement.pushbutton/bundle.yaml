@@ -1,5 +1,5 @@
 title: Quick Fire Damper Placement
-tooltip: Quickly place selected duct damper families where ducts cross selected fire or smoke wall types used in the active view. Selections are remembered.
+tooltip: Place a selected Duct Accessory type at actual crossings between selected ducts and explicitly fire- or smoke-rated walls in the active view.
 author: GM
 help_url: ""
 image: icon.png
