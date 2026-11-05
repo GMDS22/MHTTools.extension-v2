@@ -27,9 +27,9 @@ from System import Action
 from System.Collections.Generic import List
 from System.Threading import AbandonedMutexException, Mutex
 from System.Windows.Threading import DispatcherPriority
+from placement_rules import DEFAULT_DUPLICATE_RADIUS_MM, millimeters_to_feet, points_within_radius
 
 TOOL_VERSION = "1.1"
-DUPLICATE_CROSSING_TOLERANCE = 0.0164042
 THIS_DIR = os.path.dirname(__file__)
 if THIS_DIR not in sys.path:
     sys.path.insert(0, THIS_DIR)
@@ -457,6 +457,7 @@ class QuickDamperWindow(forms.WPFWindow):
         self.clear_ducts_button.IsEnabled = False
         self.refresh_button.IsEnabled = False
         self.place_button.IsEnabled = False
+        self.duplicate_radius_box.IsEnabled = False
         try:
             request = self._utility_event.raise_event(action)
             if not _event_request_accepted(request):
@@ -471,6 +472,7 @@ class QuickDamperWindow(forms.WPFWindow):
         self.select_ducts_button.IsEnabled = True
         self.clear_ducts_button.IsEnabled = True
         self.refresh_button.IsEnabled = True
+        self.duplicate_radius_box.IsEnabled = True
         self._set_duct_target_status()
 
     def _get_active_uidoc(self):
@@ -762,6 +764,7 @@ class QuickDamperWindow(forms.WPFWindow):
         state[doc.Title if doc else "document"] = {
             "family": getattr(self.family_box.SelectedItem, "Name", ""),
             "symbol": getattr(self.symbol_box.SelectedItem, "Name", ""),
+            "duplicate_radius_mm": self._placement_duplicate_radius_mm,
         }
         try:
             with open(self._state_key(), "w") as handle:
@@ -771,6 +774,12 @@ class QuickDamperWindow(forms.WPFWindow):
 
     def _restore_state(self):
         state = self._load_state().get(doc.Title if doc else "document", {})
+        radius_mm = state.get("duplicate_radius_mm", DEFAULT_DUPLICATE_RADIUS_MM)
+        try:
+            millimeters_to_feet(radius_mm)
+            self.duplicate_radius_box.Text = str(radius_mm)
+        except (TypeError, ValueError):
+            self.duplicate_radius_box.Text = str(DEFAULT_DUPLICATE_RADIUS_MM)
         if state.get("family"):
             for index, family in enumerate(self.family_box.ItemsSource or []):
                 if family.Name == state["family"]:
@@ -799,11 +808,58 @@ class QuickDamperWindow(forms.WPFWindow):
     def _point_coordinates(self, point):
         return (float(point.X), float(point.Y), float(point.Z))
 
-    def _within_duplicate_tolerance(self, point_coordinates, coordinates, tolerance=DUPLICATE_CROSSING_TOLERANCE):
-        dx = float(point_coordinates[0]) - float(coordinates[0])
-        dy = float(point_coordinates[1]) - float(coordinates[1])
-        dz = float(point_coordinates[2]) - float(coordinates[2])
-        return dx * dx + dy * dy + dz * dz <= tolerance * tolerance
+    def _existing_damper_points_on_duct(self, duct, symbol_id, radius_feet):
+        try:
+            bounding_box = duct.get_BoundingBox(None)
+        except Exception:
+            bounding_box = None
+        if bounding_box is not None:
+            try:
+                bounds = self._bounding_box_bounds(bounding_box, bounding_box.Transform)
+                minimum = DB.XYZ(
+                    bounds[0][0] - radius_feet,
+                    bounds[0][1] - radius_feet,
+                    bounds[0][2] - radius_feet,
+                )
+                maximum = DB.XYZ(
+                    bounds[1][0] + radius_feet,
+                    bounds[1][1] + radius_feet,
+                    bounds[1][2] + radius_feet,
+                )
+                accessories = _collect_category(
+                    doc,
+                    BuiltInCategory.OST_DuctAccessory,
+                    outline=DB.Outline(minimum, maximum),
+                )
+            except Exception:
+                accessories = None
+        else:
+            accessories = None
+        if accessories is None:
+            category_filter = DB.ElementCategoryFilter(
+                DB.ElementId(int(BuiltInCategory.OST_DuctAccessory))
+            )
+            accessories = [
+                doc.GetElement(element_id)
+                for element_id in duct.GetDependentElements(category_filter)
+            ]
+
+        points = []
+        for accessory in accessories:
+            try:
+                if not isinstance(accessory, DB.FamilyInstance):
+                    continue
+                host = accessory.Host
+                if host is None or int(host.Id.IntegerValue) != int(duct.Id.IntegerValue):
+                    continue
+                if int(accessory.Symbol.Id.IntegerValue) != int(symbol_id):
+                    continue
+                location = accessory.Location
+                if hasattr(location, "Point"):
+                    points.append(self._point_coordinates(location.Point))
+            except Exception:
+                continue
+        return points
 
     def _invalidate_duct_targets(self):
         self._picked_duct_ids = []
@@ -880,7 +936,7 @@ class QuickDamperWindow(forms.WPFWindow):
         self._placement_running = False
         self.cancelled = True
         self.cancel_button.IsEnabled = True
-        for control in (self.family_box, self.symbol_box, self.wall_families_box, self.refresh_button, self.select_ducts_button, self.clear_ducts_button):
+        for control in (self.family_box, self.symbol_box, self.wall_families_box, self.refresh_button, self.select_ducts_button, self.clear_ducts_button, self.duplicate_radius_box):
             control.IsEnabled = True
         self._set_duct_target_status()
         self.progress_text.Text = "Stopped; committed placements were kept"
@@ -964,7 +1020,7 @@ class QuickDamperWindow(forms.WPFWindow):
                             segment = intersections.GetCurveSegment(segment_index)
                             point = segment.Evaluate(0.5, True)
                             coordinates = self._point_coordinates(point)
-                            if any(self._within_duplicate_tolerance(coordinates, item[1:4], 0.01) for item in self._pending_crossings):
+                            if any(points_within_radius(coordinates, item[1:4], 0.01) for item in self._pending_crossings):
                                 continue
                             projection = location.Project(point)
                             parameter = float(projection.Parameter) if projection else 0.0
@@ -1006,16 +1062,6 @@ class QuickDamperWindow(forms.WPFWindow):
         local_duplicates = 0
         local_skipped = 1 if not self._pending_crossings else 0
         placements = []
-        for item in self._pending_crossings:
-            coordinates = (item[1], item[2], item[3])
-            wall_id = item[4]
-            source = item[5]
-            if any(self._within_duplicate_tolerance(coordinates, existing) for existing in self._existing_points + local_points):
-                local_duplicates += 1
-                _write_log("DUPLICATE: selected damper symbol already exists at this crossing (5 mm tolerance) on duct {}".format(duct_id))
-            else:
-                placements.append((coordinates, wall_id, source))
-
         try:
             duct = doc.GetElement(DB.ElementId(int(duct_id)))
             symbol = doc.GetElement(DB.ElementId(self._placement_symbol_id))
@@ -1027,6 +1073,27 @@ class QuickDamperWindow(forms.WPFWindow):
                 self._invalidate_duct_targets()
                 self._finish_placement("Failed", "A selected target is no longer a duct. Re-select the duct targets.")
                 return
+
+            existing_points = self._existing_damper_points_on_duct(
+                duct, self._placement_symbol_id, self._placement_duplicate_radius_ft
+            )
+            for item in self._pending_crossings:
+                coordinates = (item[1], item[2], item[3])
+                wall_id = item[4]
+                source = item[5]
+                if any(
+                    points_within_radius(coordinates, existing, self._placement_duplicate_radius_ft)
+                    for existing in existing_points + local_points
+                ):
+                    local_duplicates += 1
+                    _write_log(
+                        "DUPLICATE: selected damper type is hosted on duct {} within {} mm of crossing wall {}".format(
+                            duct_id, self._placement_duplicate_radius_mm, wall_id
+                        )
+                    )
+                    continue
+                placements.append((coordinates, wall_id, source))
+                local_points.append(coordinates)
 
             if placements:
                 transaction = Transaction(doc, "Place fire smoke dampers")
@@ -1051,7 +1118,6 @@ class QuickDamperWindow(forms.WPFWindow):
                     local_isolation_ids.append(int(duct.Id.IntegerValue))
                     if source == "host":
                         local_isolation_ids.append(int(wall_id))
-                    local_points.append(coordinates)
                     _write_log("Placed damper: duct={}, instance={}".format(duct_id, int(instance.Id.IntegerValue)))
                 commit_status = transaction.Commit()
                 if commit_status == DB.TransactionStatus.Pending:
@@ -1086,7 +1152,6 @@ class QuickDamperWindow(forms.WPFWindow):
         self._placement_counts["skipped"] += local_skipped
         self._placed_elements.extend(local_placed_ids)
         self._isolation_ids.extend(local_isolation_ids)
-        self._existing_points.extend(local_points)
         self._placement_errors.extend(local_errors)
         self._placement_index += 1
         self._pending_crossings = []
@@ -1120,6 +1185,13 @@ class QuickDamperWindow(forms.WPFWindow):
             _write_log("Placement aborted: no family or symbol selected")
             forms.alert("Select a damper family and symbol.", exitscript=False)
             return
+        try:
+            self._placement_duplicate_radius_mm = float(self.duplicate_radius_box.Text)
+            self._placement_duplicate_radius_ft = millimeters_to_feet(self._placement_duplicate_radius_mm)
+        except (TypeError, ValueError):
+            forms.alert("Enter a positive duplicate radius in millimeters.", exitscript=False)
+            self.duplicate_radius_box.Focus()
+            return
         self._placement_symbol_id = int(self.symbol_box.SelectedItem.Id)
         self._placement_symbol_name = self.symbol_box.SelectedItem.Name
         self._placement_family_name = self.family_box.SelectedItem.Name
@@ -1132,7 +1204,7 @@ class QuickDamperWindow(forms.WPFWindow):
         self.cancelled = False
         self.cancel_button.IsEnabled = True
         self.place_button.IsEnabled = False
-        for control in (self.family_box, self.symbol_box, self.wall_families_box, self.refresh_button, self.select_ducts_button, self.clear_ducts_button):
+        for control in (self.family_box, self.symbol_box, self.wall_families_box, self.refresh_button, self.select_ducts_button, self.clear_ducts_button, self.duplicate_radius_box):
             control.IsEnabled = False
         self.progress_bar.Value = 0
         self.progress_text.Text = "Starting..."
@@ -1196,23 +1268,9 @@ class QuickDamperWindow(forms.WPFWindow):
                 self._finish_placement("Failed", "One or more selected duct targets are no longer available in this view. Select the targets again before placement.")
                 return
             self._placement_index = 0
-            self._existing_points = []
-            symbol_id = self._placement_symbol_id
-            accessories = _collect_category(
-                doc, BuiltInCategory.OST_DuctAccessory, DB.ElementId(self._placement_view_id)
-            )
-            for accessory in accessories:
-                try:
-                    if not isinstance(accessory, DB.FamilyInstance):
-                        continue
-                    location = accessory.Location
-                    if int(accessory.Symbol.Id.IntegerValue) == symbol_id and hasattr(location, "Point"):
-                        self._existing_points.append(self._point_coordinates(location.Point))
-                except Exception:
-                    continue
             _write_log("PLACEMENT START: document='{}', view='{}', family='{}', type='{}'".format(doc.Title, doc.ActiveView.Name, self._placement_family_name, self._placement_symbol_name))
             _write_log("Auto-detected rated wall families: {}".format(", ".join(item.Key for item in self.wall_families)))
-            _write_log("Candidate wall records: {}; selected duct targets: {}; matching existing symbols: {}".format(len(self._wall_records), len(self._placement_ducts), len(self._existing_points)))
+            _write_log("Candidate wall records: {}; selected duct targets: {}; duplicate radius: {} mm (checked on each duct)".format(len(self._wall_records), len(self._placement_ducts), self._placement_duplicate_radius_mm))
             if not self._placement_ducts:
                 self._finish_placement("Completed")
                 return
@@ -1245,7 +1303,7 @@ class QuickDamperWindow(forms.WPFWindow):
         self._placement_running = False
         self.place_button.IsEnabled = True
         self.cancel_button.IsEnabled = True
-        for control in (self.family_box, self.symbol_box, self.wall_families_box, self.refresh_button, self.select_ducts_button, self.clear_ducts_button):
+        for control in (self.family_box, self.symbol_box, self.wall_families_box, self.refresh_button, self.select_ducts_button, self.clear_ducts_button, self.duplicate_radius_box):
             control.IsEnabled = True
         self.place_button.IsEnabled = bool(self._picked_duct_ids)
         self.progress_text.Text = state
