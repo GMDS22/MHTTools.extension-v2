@@ -375,6 +375,69 @@ def _point_tuple(point):
     return (float(point.X), float(point.Y), float(point.Z))
 
 
+def _set_family_instance_size(instance, duct):
+    if instance is None or duct is None:
+        return
+    try:
+        width = None
+        height = None
+        diameter = None
+        try:
+            width = getattr(duct, "Width", None)
+        except Exception:
+            width = None
+        try:
+            height = getattr(duct, "Height", None)
+        except Exception:
+            height = None
+        try:
+            diameter = getattr(duct, "Diameter", None)
+        except Exception:
+            diameter = None
+
+        size_candidates = []
+        if width is not None:
+            size_candidates.append(("Width", float(width)))
+        if height is not None:
+            size_candidates.append(("Height", float(height)))
+        if diameter is not None:
+            size_candidates.append(("Diameter", float(diameter)))
+        if not size_candidates:
+            for param_name in ("RBS_CURVE_WIDTH_PARAM", "RBS_CURVE_HEIGHT_PARAM", "RBS_CURVE_DIAMETER_PARAM"):
+                try:
+                    builtin = getattr(DB.BuiltInParameter, param_name)
+                    param = duct.get_Parameter(builtin)
+                    if param:
+                        value = param.AsDouble() if param.StorageType == DB.StorageType.Double else None
+                        if value is not None:
+                            size_candidates.append((param_name, float(value)))
+                except Exception:
+                    pass
+        if not size_candidates:
+            return
+
+        for parameter_name, value in size_candidates:
+            try:
+                param = instance.LookupParameter(parameter_name)
+                if param is None:
+                    param = instance.Symbol.LookupParameter(parameter_name)
+                if param is None:
+                    for candidate_name in ("Width", "Height", "Diameter", "Nominal Size", "Size"):
+                        param = instance.LookupParameter(candidate_name)
+                        if param is not None:
+                            break
+                if param is None:
+                    continue
+                if param.StorageType in (DB.StorageType.Double, DB.StorageType.Integer):
+                    param.Set(value)
+                elif param.StorageType == DB.StorageType.String:
+                    param.Set(str(value))
+            except Exception:
+                continue
+    except Exception as exc:
+        logger.warning("Could not apply size parameters to a damper placed on duct {}: {}".format(_id_value(duct.Id), exc))
+
+
 def _connected_elbow_points(duct):
     points = []
     seen = set()
@@ -831,6 +894,7 @@ def _place_on_duct(document, duct_id, crossings, symbol_id, radius_feet, view_id
                         duct,
                         StructuralType.NonStructural,
                     )
+                    _set_family_instance_size(instance, duct)
                     document.Regenerate()
                     orientation_note = (
                         "Instance {} retained Revit's host orientation; family-specific roll data is unavailable."
