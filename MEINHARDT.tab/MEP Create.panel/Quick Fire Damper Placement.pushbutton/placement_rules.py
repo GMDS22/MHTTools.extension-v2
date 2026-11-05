@@ -38,6 +38,103 @@ def closest_clear_point(candidate_points, obstacle_points, clearance_feet):
     return min(safe_candidates, key=lambda item: item[0])[1] if safe_candidates else None
 
 
+def classify_instance_status(
+    exists,
+    is_valid,
+    is_family_instance,
+    is_accessory,
+    hosted_on_duct,
+    connected_to_duct,
+):
+    if not exists:
+        return "missing"
+    if not is_valid:
+        return "invalid"
+    if not is_family_instance:
+        return "not-family-instance"
+    if not is_accessory:
+        return "wrong-category"
+    if hosted_on_duct:
+        return "hosted"
+    if connected_to_duct:
+        return "connected"
+    return "detached"
+
+
+def bounded_curve_candidates(
+    point_at_distance,
+    segment_start_distance,
+    segment_end_distance,
+    curve_length,
+    obstacle_points,
+    clearance_feet,
+    max_distance_feet,
+    step_distance_feet,
+):
+    length = float(curve_length)
+    clearance = float(clearance_feet)
+    max_distance = float(max_distance_feet)
+    step_distance = float(step_distance_feet)
+    values = (length, clearance, max_distance, step_distance)
+    if any(math.isnan(value) or math.isinf(value) for value in values):
+        raise ValueError("Curve candidate distances must be finite")
+    if length <= 0 or clearance < 0 or max_distance < 0 or step_distance <= 0:
+        raise ValueError("Curve candidate distances must be non-negative and bounded")
+
+    start = min(max(float(segment_start_distance), 0.0), length)
+    end = min(max(float(segment_end_distance), 0.0), length)
+    if start > end:
+        start, end = end, start
+    obstacles = [tuple(float(value) for value in point) for point in obstacle_points]
+    if not obstacles or max_distance == 0:
+        return []
+
+    offsets = []
+    offset = step_distance
+    while offset < max_distance:
+        offsets.append(offset)
+        offset += step_distance
+    offsets.append(max_distance)
+
+    candidates = []
+    seen = []
+    for offset in offsets:
+        for boundary, direction in ((start, -1.0), (end, 1.0)):
+            distance = boundary + direction * offset
+            if distance < 0.0 or distance > length:
+                continue
+            point = tuple(float(value) for value in point_at_distance(distance))
+            boundary_point = tuple(float(value) for value in point_at_distance(boundary))
+            distances_from_boundary = [
+                _distance_squared(boundary_point, obstacle) for obstacle in obstacles
+            ]
+            distances_from_candidate = [
+                _distance_squared(point, obstacle) for obstacle in obstacles
+            ]
+            clearance_squared = clearance * clearance
+            if any(distance_squared < clearance_squared for distance_squared in distances_from_candidate):
+                continue
+            if any(
+                candidate_distance + 1e-12 < boundary_distance
+                for candidate_distance, boundary_distance in zip(
+                    distances_from_candidate, distances_from_boundary
+                )
+            ):
+                continue
+            if not any(
+                candidate_distance > boundary_distance + 1e-12
+                for candidate_distance, boundary_distance in zip(
+                    distances_from_candidate, distances_from_boundary
+                )
+            ):
+                continue
+            if any(_distance_squared(point, existing) <= 1e-12 for existing in seen):
+                continue
+            seen.append(point)
+            candidates.append((point, offset))
+    return candidates
+
+
 def adjust_point_away_from_points(segment_start, segment_end, obstacle_points, clearance_feet):
     start = tuple(float(value) for value in segment_start)
     end = tuple(float(value) for value in segment_end)

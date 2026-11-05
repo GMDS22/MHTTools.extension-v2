@@ -4,7 +4,9 @@ import unittest
 from placement_rules import (
     DEFAULT_DUPLICATE_RADIUS_MM,
     adjust_point_away_from_points,
+    bounded_curve_candidates,
     closest_clear_point,
+    classify_instance_status,
     millimeters_to_feet,
     points_within_radius,
 )
@@ -65,6 +67,60 @@ class PlacementRulesTests(unittest.TestCase):
     def test_curved_path_returns_no_position_when_all_samples_are_blocked(self):
         candidates = [(float(index) / 100.0, 0.0, 0.0) for index in range(101)]
         self.assertIsNone(closest_clear_point(candidates, [(0.5, 0.0, 0.0)], 1.0))
+
+    def test_instance_status_distinguishes_hosted_connected_and_detached(self):
+        self.assertEqual(classify_instance_status(True, True, True, True, True, False), "hosted")
+        self.assertEqual(classify_instance_status(True, True, True, True, False, True), "connected")
+        self.assertEqual(classify_instance_status(True, True, True, True, False, False), "detached")
+
+    def test_instance_status_reports_missing_invalid_and_wrong_types(self):
+        self.assertEqual(classify_instance_status(False, False, False, False, False, False), "missing")
+        self.assertEqual(classify_instance_status(True, False, True, True, True, False), "invalid")
+        self.assertEqual(classify_instance_status(True, True, False, False, False, False), "not-family-instance")
+        self.assertEqual(classify_instance_status(True, True, True, False, False, False), "wrong-category")
+
+    def test_bounded_candidates_do_not_exceed_the_fallback_limit(self):
+        candidates = bounded_curve_candidates(
+            lambda distance: (distance, 0.0, 0.0),
+            4.0,
+            6.0,
+            10.0,
+            [(3.0, 0.0, 0.0)],
+            0.5,
+            2.0,
+            0.75,
+        )
+        self.assertTrue(candidates)
+        self.assertTrue(all(6.0 < point[0] <= 8.0 for point, offset in candidates))
+        self.assertTrue(all(offset <= 2.0 for point, offset in candidates))
+        self.assertAlmostEqual(max(offset for point, offset in candidates), 2.0)
+
+    def test_bounded_candidates_only_move_away_from_elbows(self):
+        candidates = bounded_curve_candidates(
+            lambda distance: (distance, 0.0, 0.0),
+            4.0,
+            6.0,
+            10.0,
+            [(3.0, 0.0, 0.0)],
+            0.5,
+            2.0,
+            0.5,
+        )
+        self.assertTrue(candidates)
+        self.assertTrue(all(point[0] > 6.0 for point, offset in candidates))
+
+    def test_bounded_candidates_respect_all_connected_elbows(self):
+        candidates = bounded_curve_candidates(
+            lambda distance: (distance, 0.0, 0.0),
+            4.0,
+            6.0,
+            10.0,
+            [(2.0, 0.0, 0.0), (8.0, 0.0, 0.0)],
+            0.5,
+            2.0,
+            0.5,
+        )
+        self.assertEqual(candidates, [])
 
 
 if __name__ == "__main__":

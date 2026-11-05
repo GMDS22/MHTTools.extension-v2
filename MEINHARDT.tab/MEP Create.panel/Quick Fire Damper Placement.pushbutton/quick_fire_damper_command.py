@@ -12,11 +12,13 @@ from Autodesk.Revit.DB import (
     SolidCurveIntersectionMode,
     SolidCurveIntersectionOptions,
     SolidUtils,
+    SubTransaction,
     Transaction,
 )
 from Autodesk.Revit.DB.Structure import StructuralType
 from Autodesk.Revit.Exceptions import OperationCanceledException, RegenerationFailedException
 from Autodesk.Revit.UI.Selection import ISelectionFilter, ObjectType
+from System.Collections.Generic import List
 
 THIS_DIR = os.path.dirname(__file__)
 if THIS_DIR not in sys.path:
@@ -25,6 +27,8 @@ if THIS_DIR not in sys.path:
 from placement_rules import (
     DEFAULT_DUPLICATE_RADIUS_MM,
     DEFAULT_ELBOW_CLEARANCE_MM,
+    bounded_curve_candidates,
+    classify_instance_status,
     millimeters_to_feet,
     points_within_radius,
     closest_clear_point,
@@ -36,6 +40,8 @@ RATED_CLASSIFICATIONS = ("FIRE", "SMOKE", "BOTH")
 GEOMETRY_TOLERANCE_FEET = 0.01
 BOUNDING_BOX_PADDING_FEET = 0.1
 ELBOW_CLEARANCE_FEET = DEFAULT_ELBOW_CLEARANCE_MM / 304.8
+FALLBACK_DISTANCE_FEET = millimeters_to_feet(DEFAULT_ELBOW_CLEARANCE_MM)
+FALLBACK_STEP_FEET = millimeters_to_feet(10.0)
 
 
 def _id_value(element_id):
@@ -183,14 +189,17 @@ def _choose_wall_mode():
 def _bbox_bounds(bounding_box, transform=None):
     if bounding_box is None:
         return None
-    if transform is None:
-        transform = bounding_box.Transform
+    box_transform = bounding_box.Transform
+    if transform is not None and box_transform is not None:
+        box_transform = transform.Multiply(box_transform)
+    elif transform is not None:
+        box_transform = transform
     points = []
     for x_value in (bounding_box.Min.X, bounding_box.Max.X):
         for y_value in (bounding_box.Min.Y, bounding_box.Max.Y):
             for z_value in (bounding_box.Min.Z, bounding_box.Max.Z):
                 point = DB.XYZ(x_value, y_value, z_value)
-                points.append(transform.OfPoint(point) if transform is not None else point)
+                points.append(box_transform.OfPoint(point) if box_transform is not None else point)
     return (
         (
             min(point.X for point in points),
@@ -202,6 +211,15 @@ def _bbox_bounds(bounding_box, transform=None):
             max(point.Y for point in points),
             max(point.Z for point in points),
         ),
+    )
+
+
+def _bounds_overlap(first, second):
+    if first is None or second is None:
+        return False
+    return all(
+        first[0][axis] < second[1][axis] and second[0][axis] < first[1][axis]
+        for axis in range(3)
     )
 
 
@@ -432,6 +450,12 @@ def _scan_duct(document, view, duct, curve, duct_bounds, force_all_walls=False, 
     elbow_points = _connected_elbow_points(duct)
     for wall, transform, wall_document, source in candidates:
         try:
+            wall_bounds = _bbox_bounds(wall.get_BoundingBox(None), transform)
+        except RegenerationFailedException:
+            raise
+        except Exception:
+            wall_bounds = None
+        try:
             solids = _geometry_solids(wall)
         except RegenerationFailedException:
             raise
@@ -447,6 +471,7 @@ def _scan_duct(document, view, duct, curve, duct_bounds, force_all_walls=False, 
                 for segment_index in range(intersections.SegmentCount):
                     segment = intersections.GetCurveSegment(segment_index)
                     midpoint = segment.Evaluate(0.5, True)
+                    candidates_for_crossing = []
                     if elbow_points:
                         curve_samples = [
                             _point_tuple(segment.Evaluate(sample_index / 100.0, True))
@@ -458,39 +483,84 @@ def _scan_duct(document, view, duct, curve, duct_bounds, force_all_walls=False, 
                             ELBOW_CLEARANCE_FEET,
                         )
                         if coordinates is None:
-                            if elbow_skips is not None:
-                                try:
-                                    skipped_label = wall_document.GetElement(wall.GetTypeId()).Name
-                                except Exception:
-                                    skipped_label = str(_id_value(wall.Id))
-                                elbow_skips.append(
-                                    "Duct {} crossing wall '{}' skipped: no point within the wall thickness clears a connected elbow by {} mm.".format(
-                                        _id_value(duct.Id), skipped_label, int(DEFAULT_ELBOW_CLEARANCE_MM)
-                                    )
+                            curve_length = float(curve.Length)
+                            start_projection = curve.Project(segment.Evaluate(0.0, True))
+                            end_projection = curve.Project(segment.Evaluate(1.0, True))
+                            if curve_length > 0 and start_projection is not None and end_projection is not None:
+                                start_distance = (
+                                    float(curve.ComputeNormalizedParameter(start_projection.Parameter))
+                                    * curve_length
                                 )
-                            continue
+                                end_distance = (
+                                    float(curve.ComputeNormalizedParameter(end_projection.Parameter))
+                                    * curve_length
+                                )
+                                fallback_points = bounded_curve_candidates(
+                                    lambda distance: _point_tuple(
+                                        curve.Evaluate(distance / curve_length, True)
+                                    ),
+                                    start_distance,
+                                    end_distance,
+                                    curve_length,
+                                    elbow_points,
+                                    ELBOW_CLEARANCE_FEET,
+                                    FALLBACK_DISTANCE_FEET,
+                                    FALLBACK_STEP_FEET,
+                                )
+                                candidates_for_crossing = [
+                                    {"point": candidate[0], "adjusted": True}
+                                    for candidate in fallback_points
+                                ]
+                            if elbow_skips is not None:
+                                if not candidates_for_crossing:
+                                    try:
+                                        skipped_label = wall_document.GetElement(wall.GetTypeId()).Name
+                                    except Exception:
+                                        skipped_label = str(_id_value(wall.Id))
+                                    elbow_skips.append(
+                                        "Duct {} crossing wall '{}' skipped: no point within the wall or within {} mm beyond it clears every connected elbow.".format(
+                                            _id_value(duct.Id),
+                                            skipped_label,
+                                            int(DEFAULT_ELBOW_CLEARANCE_MM),
+                                        )
+                                    )
+                            if not candidates_for_crossing:
+                                continue
+                        else:
+                            candidates_for_crossing = [{"point": coordinates, "adjusted": False}]
                     else:
                         coordinates = _point_tuple(midpoint)
-                    point = DB.XYZ(coordinates[0], coordinates[1], coordinates[2])
+                        candidates_for_crossing = [{"point": coordinates, "adjusted": False}]
+                    coordinates = candidates_for_crossing[0]["point"]
                     if any(
-                        points_within_radius(coordinates, crossing[0], GEOMETRY_TOLERANCE_FEET)
+                        points_within_radius(
+                            coordinates, crossing["point"], GEOMETRY_TOLERANCE_FEET
+                        )
                         for crossing in crossings
                     ):
                         continue
+                    point = DB.XYZ(coordinates[0], coordinates[1], coordinates[2])
                     projection = curve.Project(point)
                     parameter = float(projection.Parameter) if projection is not None else 0.0
                     try:
                         wall_label = wall_document.GetElement(wall.GetTypeId()).Name
                     except Exception:
                         wall_label = str(_id_value(wall.Id))
-                    crossings.append((coordinates, parameter, wall_label, source))
+                    crossings.append({
+                        "point": coordinates,
+                        "parameter": parameter,
+                        "wall_label": wall_label,
+                        "source": source,
+                        "wall_bounds": wall_bounds,
+                        "candidates": candidates_for_crossing,
+                    })
             except RegenerationFailedException:
                 raise
             except Exception as exc:
                 logger.warning("Curve/solid intersection failed for duct {} and wall {}: {}".format(
                     _id_value(duct.Id), _id_value(wall.Id), exc
                 ))
-    crossings.sort(key=lambda crossing: crossing[1])
+    crossings.sort(key=lambda crossing: crossing["parameter"])
     return crossings
 
 
@@ -537,10 +607,12 @@ def _existing_symbol_points(document, duct, symbol_id, radius_feet):
     return points
 
 
-def _current_context_matches(expected_document, expected_view_id):
+def _current_context_matches(expected_document, expected_view_id, expected_uidocument=None):
     try:
         current_uidocument = revit.uidoc
         current_document = current_uidocument.Document if current_uidocument else None
+        if expected_uidocument is not None and current_uidocument != expected_uidocument:
+            return False
         if current_document is None or not current_document.IsValidObject:
             return False
         if current_document != expected_document or not expected_document.IsValidObject:
@@ -548,6 +620,132 @@ def _current_context_matches(expected_document, expected_view_id):
         return _id_value(current_uidocument.ActiveView.Id) == expected_view_id
     except Exception:
         return False
+
+
+def _instance_connected_to_duct(instance, duct_id):
+    try:
+        connectors = instance.MEPModel.ConnectorManager.Connectors
+    except Exception:
+        return False
+    for connector in connectors:
+        try:
+            if not connector.IsConnected:
+                continue
+            for reference in connector.AllRefs:
+                try:
+                    if str(reference.ConnectorType).lower().endswith("logical"):
+                        continue
+                    if _id_value(reference.Owner.Id) == duct_id:
+                        return True
+                except Exception:
+                    continue
+        except Exception:
+            continue
+    return False
+
+
+def _inspect_instance_persistence(document, record):
+    element_id = record["element_id"]
+    duct_id = record["duct_id"]
+    diagnostic = {
+        "element_id": _id_value(element_id),
+        "duct_id": duct_id,
+        "host_id": None,
+        "connected": False,
+        "status": "missing",
+    }
+    try:
+        instance = document.GetElement(element_id)
+    except Exception as exc:
+        diagnostic["status"] = "lookup-error"
+        diagnostic["detail"] = str(exc)
+        return diagnostic
+    exists = instance is not None
+    is_valid = False
+    is_family_instance = False
+    is_accessory = False
+    hosted_on_duct = False
+    connected_to_duct = False
+    if exists:
+        try:
+            is_valid = bool(instance.IsValidObject)
+        except Exception:
+            pass
+        is_family_instance = isinstance(instance, DB.FamilyInstance)
+        is_accessory = _category_is(instance, BuiltInCategory.OST_DuctAccessory)
+        if is_valid and is_family_instance:
+            try:
+                host = instance.Host
+                if host is not None:
+                    diagnostic["host_id"] = _id_value(host.Id)
+                    hosted_on_duct = diagnostic["host_id"] == duct_id
+            except Exception:
+                pass
+            connected_to_duct = _instance_connected_to_duct(instance, duct_id)
+    diagnostic["connected"] = connected_to_duct
+    diagnostic["status"] = classify_instance_status(
+        exists,
+        is_valid,
+        is_family_instance,
+        is_accessory,
+        hosted_on_duct,
+        connected_to_duct,
+    )
+    return diagnostic
+
+
+def _format_instance_diagnostic(diagnostic):
+    return "Instance {}: status={}, intended duct={}, host={}, connected={}".format(
+        diagnostic["element_id"],
+        diagnostic["status"],
+        diagnostic["duct_id"],
+        diagnostic["host_id"] if diagnostic["host_id"] is not None else "none",
+        diagnostic["connected"],
+    )
+
+
+def _log_post_summary_diagnostics(document, records):
+    diagnostics = [_inspect_instance_persistence(document, record) for record in records]
+    if not diagnostics:
+        return diagnostics
+    lines = [_format_instance_diagnostic(item) for item in diagnostics]
+    for line in lines:
+        logger.info("Post-summary persistence: {}".format(line))
+    try:
+        script.get_output().print_md("### Post-summary persistence check\n\n" + "\n\n".join(lines))
+    except Exception as exc:
+        logger.warning("Could not print persistence diagnostics to the pyRevit output: {}".format(exc))
+    return diagnostics
+
+
+def _select_placed_instances(document, uidocument, view_id, placed_ids):
+    if not placed_ids:
+        return None
+    if not _current_context_matches(document, view_id, uidocument):
+        return "The active project or view changed; placed instances were not selected."
+
+    selection_ids = List[DB.ElementId]()
+    for element_id in placed_ids:
+        try:
+            instance = document.GetElement(element_id)
+            if (
+                instance is not None
+                and instance.IsValidObject
+                and isinstance(instance, DB.FamilyInstance)
+            ):
+                selection_ids.Add(instance.Id)
+        except Exception:
+            continue
+    if selection_ids.Count == 0:
+        return "Committed instances could not be reacquired for selection."
+    try:
+        if not _current_context_matches(document, view_id, uidocument):
+            return "The active project or view changed; placed instances were not selected."
+        uidocument.Selection.SetElementIds(selection_ids)
+    except Exception as exc:
+        logger.warning("Could not select committed damper instances: {}".format(exc))
+        return "Committed instances were placed, but Revit could not select them."
+    return None
 
 
 def _rollback(transaction):
@@ -564,26 +762,38 @@ def _rollback(transaction):
     return False
 
 
-def _place_on_duct(document, duct_id, crossings, symbol_id, radius_feet, view_id):
+def _rollback_subtransaction(subtransaction):
+    try:
+        if subtransaction is None:
+            return False
+        status = subtransaction.GetStatus()
+        if status == DB.TransactionStatus.Started:
+            subtransaction.RollBack()
+            status = subtransaction.GetStatus()
+        return status == DB.TransactionStatus.RolledBack
+    except Exception as exc:
+        logger.error("Could not confirm rollback of a damper candidate: {}".format(exc))
+    return False
+
+
+def _place_on_duct(document, duct_id, crossings, symbol_id, radius_feet, view_id, uidocument):
     duct = document.GetElement(DB.ElementId(duct_id))
     symbol = document.GetElement(DB.ElementId(symbol_id))
     if duct is None or symbol is None or not _category_is(duct, BuiltInCategory.OST_DuctCurves):
         raise RuntimeError("The selected duct or accessory type is no longer available.")
 
     existing_points = _existing_symbol_points(document, duct, symbol_id, radius_feet)
-    planned_points = []
-    for crossing in crossings:
-        point = crossing[0]
-        if any(
-            points_within_radius(point, existing, radius_feet)
-            for existing in existing_points + planned_points
-        ):
-            continue
-        planned_points.append(point)
-    if not planned_points:
-        return 0
+    if not any(
+        not any(points_within_radius(candidate["point"], existing, radius_feet) for existing in existing_points)
+        for crossing in crossings
+        for candidate in crossing["candidates"]
+    ):
+        return [], len(crossings), [], []
 
     transaction = Transaction(document, "Place dampers on duct {}".format(duct_id))
+    duplicate_count = 0
+    placement_skips = []
+    created_records = []
     try:
         failure_options = transaction.GetFailureHandlingOptions()
         failure_options.SetForcedModalHandling(True)
@@ -594,15 +804,86 @@ def _place_on_duct(document, duct_id, crossings, symbol_id, radius_feet, view_id
         if not symbol.IsActive:
             symbol.Activate()
             document.Regenerate()
-        for coordinates in planned_points:
-            location = DB.XYZ(coordinates[0], coordinates[1], coordinates[2])
-            document.Create.NewFamilyInstance(
-                location,
-                symbol,
-                duct,
-                StructuralType.NonStructural,
-            )
-        if not _current_context_matches(document, view_id):
+        placed_points = []
+        for crossing in crossings:
+            accepted = False
+            all_duplicate = True
+            candidate_errors = []
+            for candidate in crossing["candidates"]:
+                coordinates = candidate["point"]
+                if any(
+                    points_within_radius(coordinates, existing, radius_feet)
+                    for existing in existing_points + placed_points
+                ):
+                    continue
+                all_duplicate = False
+                subtransaction = SubTransaction(document)
+                sub_status = subtransaction.Start()
+                if sub_status != DB.TransactionStatus.Started:
+                    raise RuntimeError(
+                        "Revit did not start a damper candidate subtransaction ({})".format(sub_status)
+                    )
+                try:
+                    location = DB.XYZ(coordinates[0], coordinates[1], coordinates[2])
+                    instance = document.Create.NewFamilyInstance(
+                        location,
+                        symbol,
+                        duct,
+                        StructuralType.NonStructural,
+                    )
+                    document.Regenerate()
+                    orientation_note = (
+                        "Instance {} retained Revit's host orientation; family-specific roll data is unavailable."
+                    ).format(_id_value(instance.Id))
+                    if candidate["adjusted"]:
+                        instance_bounds = _bbox_bounds(instance.get_BoundingBox(None))
+                        if not _bounds_overlap(instance_bounds, crossing["wall_bounds"]):
+                            if not _rollback_subtransaction(subtransaction):
+                                raise _TransactionRecoveryError(
+                                    "The damper candidate outside the wall could not be confirmed rolled back."
+                                )
+                            candidate_errors.append("the family bounding box did not overlap the wall")
+                            continue
+                    sub_status = subtransaction.Commit()
+                    if sub_status == DB.TransactionStatus.Pending:
+                        raise _TransactionPendingError(
+                            "Revit is still resolving transaction failures for duct {}.".format(duct_id)
+                        )
+                    if sub_status != DB.TransactionStatus.Committed:
+                        raise RuntimeError(
+                            "Revit did not commit a damper candidate ({})".format(sub_status)
+                        )
+                    placed_points.append(coordinates)
+                    created_records.append({
+                        "element_id": instance.Id,
+                        "adjusted": candidate["adjusted"],
+                        "orientation_note": orientation_note,
+                    })
+                    accepted = True
+                    break
+                except _TransactionPendingError:
+                    raise
+                except RegenerationFailedException:
+                    raise
+                except _TransactionRecoveryError:
+                    raise
+                except Exception as exc:
+                    if not _rollback_subtransaction(subtransaction):
+                        raise _TransactionRecoveryError(
+                            "A failed damper candidate could not be confirmed rolled back: {}".format(exc)
+                        )
+                    candidate_errors.append(str(exc))
+            if not accepted:
+                if all_duplicate:
+                    duplicate_count += 1
+                else:
+                    reason = candidate_errors[0] if candidate_errors else "no safe candidate could be committed"
+                    placement_skips.append(
+                        "Duct {} crossing wall '{}' skipped: {}.".format(
+                            duct_id, crossing["wall_label"], reason
+                        )
+                    )
+        if not _current_context_matches(document, view_id, uidocument):
             raise RuntimeError("The active project or view changed before this duct could be committed.")
         status = transaction.Commit()
         if status == DB.TransactionStatus.Pending:
@@ -611,7 +892,17 @@ def _place_on_duct(document, duct_id, crossings, symbol_id, radius_feet, view_id
             )
         if status != DB.TransactionStatus.Committed:
             raise RuntimeError("Revit did not commit this duct transaction ({})".format(status))
-        return len(planned_points)
+
+        orientation_notes = []
+        for record in created_records:
+            if record["orientation_note"]:
+                orientation_notes.append(record["orientation_note"])
+        return (
+            created_records,
+            duplicate_count,
+            placement_skips,
+            orientation_notes,
+        )
     except _TransactionPendingError:
         raise
     except RegenerationFailedException:
@@ -648,7 +939,7 @@ def main():
         return
     force_all_walls = wall_mode == "All actual wall crossings (force placement)"
 
-    if not _current_context_matches(document, view_id):
+    if not _current_context_matches(document, view_id, uidocument):
         forms.alert("The active project or view changed. Run the tool again in the target view.", exitscript=False)
         return
 
@@ -682,28 +973,37 @@ def main():
             duct_runs.append((_id_value(duct.Id), []))
 
     total_crossings = sum(len(crossings) for duct_id, crossings in duct_runs)
-    placed = 0
+    committed_records = []
     duplicates = 0
+    adjusted = 0
     failed_ducts = len(scan_errors)
+    placement_skips = []
+    orientation_notes = []
     stopped = False
     for duct_id, crossings in duct_runs:
-        if not _current_context_matches(document, view_id):
+        if not _current_context_matches(document, view_id, uidocument):
             scan_errors.append("The active project or view changed; remaining ducts were not modified.")
             stopped = True
             break
         if not crossings:
             continue
         try:
-            count = _place_on_duct(
+            created_records, duplicate_count, skipped, orientation = _place_on_duct(
                 document,
                 duct_id,
                 crossings,
                 _id_value(choice.Symbol.Id),
                 radius_feet,
                 view_id,
+                uidocument,
             )
-            placed += count
-            duplicates += len(crossings) - count
+            for record in created_records:
+                committed_record = dict(record)
+                committed_record["duct_id"] = duct_id
+                committed_records.append(committed_record)
+            duplicates += duplicate_count
+            placement_skips.extend(skipped)
+            orientation_notes.extend(orientation)
         except _TransactionPendingError:
             return
         except RegenerationFailedException:
@@ -719,22 +1019,72 @@ def main():
                 stopped = True
                 break
 
+    if committed_records:
+        forms.alert(
+            "Duct transactions returned Committed for {} instance(s). Click OK to run the persistence check; no placement count is final yet.".format(
+                len(committed_records)
+            ),
+            title="Quick Fire Damper Placement",
+            exitscript=False,
+        )
+    pre_summary_diagnostics = [
+        _inspect_instance_persistence(document, record) for record in committed_records
+    ]
+    persisted_statuses = ("hosted", "connected")
+    persisted_ids = [
+        item["element_id"]
+        for item in pre_summary_diagnostics
+        if item["status"] in persisted_statuses
+    ]
+    adjusted = sum(
+        1
+        for record, diagnostic in zip(committed_records, pre_summary_diagnostics)
+        if record["adjusted"] and diagnostic["status"] in persisted_statuses
+    )
+    selection_warning = _select_placed_instances(
+        document,
+        uidocument,
+        view_id,
+        [DB.ElementId(element_id) for element_id in persisted_ids],
+    )
+    placed_ids_text = ", ".join(str(element_id) for element_id in persisted_ids)
     summary = (
         "Checked {} ducts; found {} {} crossings; placed {} dampers; "
-        "skipped {} duplicates and {} crossings near elbows; {} ducts had errors."
+        "skipped {} duplicates and {} crossings without elbow-safe fit; "
+        "adjusted {} placements by up to {} mm; {} crossings had no valid candidate placement; "
+        "{} ducts had errors.\nPlaced instance IDs: {}."
     ).format(
         len(duct_runs),
         total_crossings,
         "actual wall" if force_all_walls else "rated-wall",
-        placed,
+        len(persisted_ids),
         duplicates,
         len(elbow_skips),
+        adjusted,
+        int(DEFAULT_ELBOW_CLEARANCE_MM),
+        len(placement_skips),
         failed_ducts,
+        placed_ids_text or "none persisted on or connected to the intended duct",
     )
     if elbow_skips:
         summary += "\n\nFirst elbow clearance skip: {}".format(elbow_skips[0])
         if len(elbow_skips) > 1:
             summary += "\n{} additional elbow-related crossing(s) were skipped.".format(len(elbow_skips) - 1)
+    if placement_skips:
+        summary += "\n\nFirst adjusted-placement skip: {}".format(placement_skips[0])
+        if len(placement_skips) > 1:
+            summary += "\n{} additional adjusted candidate(s) were skipped.".format(len(placement_skips) - 1)
+    if orientation_notes and persisted_ids:
+        summary += (
+            "\n\nOrientation note: Revit's host orientation was retained. No family-specific roll data "
+            "is available, so non-square family orientation must be checked in Revit."
+        )
+    if pre_summary_diagnostics:
+        summary += "\n\nPersistence status after the verification prompt:\n{}".format(
+            "\n".join(_format_instance_diagnostic(item) for item in pre_summary_diagnostics)
+        )
+    if selection_warning:
+        summary += "\n\n{}".format(selection_warning)
     if stopped:
         summary += "\nProcessing stopped because the active project or view changed."
     if scan_errors:
@@ -742,6 +1092,29 @@ def main():
         if len(scan_errors) > 1:
             summary += "\n{} additional issue(s) were written to the pyRevit log.".format(len(scan_errors) - 1)
     forms.alert(summary, title="Quick Fire Damper Placement", exitscript=False)
+    post_summary_diagnostics = _log_post_summary_diagnostics(document, committed_records)
+    changed_diagnostics = [
+        (before, after)
+        for before, after in zip(pre_summary_diagnostics, post_summary_diagnostics)
+        if before["status"] != after["status"]
+        or before["host_id"] != after["host_id"]
+        or before["connected"] != after["connected"]
+    ]
+    if changed_diagnostics:
+        changed_lines = [
+            "{} -> {}".format(
+                _format_instance_diagnostic(before),
+                _format_instance_diagnostic(after),
+            )
+            for before, after in changed_diagnostics
+        ]
+        forms.alert(
+            "Instance state changed after the summary was dismissed. See the pyRevit output for the full post-summary check.\n\n{}".format(
+                "\n".join(changed_lines)
+            ),
+            title="Quick Fire Damper Placement Diagnostics",
+            exitscript=False,
+        )
 
 
 def run():
