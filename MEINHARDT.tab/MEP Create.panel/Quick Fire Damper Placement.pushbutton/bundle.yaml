@@ -1,5 +1,5 @@
 title: Quick Fire Damper Placement
-tooltip: Place a selected Duct Accessory type at actual crossings between selected ducts and explicitly fire- or smoke-rated walls in the active view.
+tooltip: Place a selected Duct Accessory at actual crossings with rated walls or all walls in force mode; connected elbow clearance is maintained where wall thickness permits.
 author: GM
 help_url: ""
 image: icon.png

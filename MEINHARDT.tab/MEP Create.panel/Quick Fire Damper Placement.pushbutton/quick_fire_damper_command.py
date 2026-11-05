@@ -24,15 +24,18 @@ if THIS_DIR not in sys.path:
 
 from placement_rules import (
     DEFAULT_DUPLICATE_RADIUS_MM,
+    DEFAULT_ELBOW_CLEARANCE_MM,
     millimeters_to_feet,
     points_within_radius,
+    closest_clear_point,
 )
-from wall_classification import classify_wall_material
+from wall_classification import classify_wall_descriptors
 
 logger = script.get_logger()
 RATED_CLASSIFICATIONS = ("FIRE", "SMOKE", "BOTH")
 GEOMETRY_TOLERANCE_FEET = 0.01
 BOUNDING_BOX_PADDING_FEET = 0.1
+ELBOW_CLEARANCE_FEET = DEFAULT_ELBOW_CLEARANCE_MM / 304.8
 
 
 def _id_value(element_id):
@@ -169,6 +172,14 @@ def _choose_duplicate_radius():
             forms.alert("Enter a positive, finite distance in millimeters.", exitscript=False)
 
 
+def _choose_wall_mode():
+    return forms.CommandSwitchWindow.show(
+        ["Rated walls only", "All actual wall crossings (force placement)"],
+        message="Choose which actual duct/wall crossings to check:",
+        title="Wall crossing mode",
+    )
+
+
 def _bbox_bounds(bounding_box, transform=None):
     if bounding_box is None:
         return None
@@ -239,19 +250,56 @@ def _parameter_text(element, parameter_name):
         return ""
 
 
+def _structural_material_text(wall_type, source_document):
+    try:
+        parameter_id = getattr(DB.BuiltInParameter, "STRUCTURAL_MATERIAL_PARAM", None)
+        parameter = wall_type.get_Parameter(parameter_id) if parameter_id is not None else None
+        if parameter is None:
+            parameter = wall_type.LookupParameter("Structural Material")
+        if parameter is None:
+            return ""
+        values = []
+        try:
+            if parameter.StorageType == DB.StorageType.ElementId:
+                material = source_document.GetElement(parameter.AsElementId())
+                if material is not None:
+                    values.append(material.Name)
+        except Exception:
+            pass
+        try:
+            value = parameter.AsString() or parameter.AsValueString()
+            if value:
+                values.append(value)
+        except Exception:
+            pass
+        return " ".join(values)
+    except Exception:
+        return ""
+
+
 def _wall_rating(wall, document):
     try:
         wall_type = document.GetElement(wall.GetTypeId())
     except Exception:
         wall_type = None
     values = []
+    if wall_type is not None:
+        try:
+            if wall_type.Name:
+                values.append(wall_type.Name)
+        except Exception:
+            pass
+        material_text = _structural_material_text(wall_type, document)
+        if material_text:
+            values.append(material_text)
     for name in ("NWB_Material", "NWB_MATERIAL"):
-        value = _parameter_text(wall, name)
-        if not value and wall_type is not None:
-            value = _parameter_text(wall_type, name)
-        if value:
-            values.append(value)
-    return classify_wall_material(" ".join(values))
+        for element in (wall, wall_type):
+            if element is None:
+                continue
+            value = _parameter_text(element, name)
+            if value:
+                values.append(value)
+    return classify_wall_descriptors(values)
 
 
 def _collect_walls(document, view_id, outline):
@@ -309,12 +357,56 @@ def _point_tuple(point):
     return (float(point.X), float(point.Y), float(point.Z))
 
 
-def _scan_duct(document, view, duct, curve, duct_bounds):
+def _connected_elbow_points(duct):
+    points = []
+    seen = set()
+    try:
+        connectors = duct.ConnectorManager.Connectors
+    except Exception:
+        return points
+    for connector in connectors:
+        try:
+            references = connector.AllRefs
+        except Exception:
+            continue
+        for reference in references:
+            try:
+                fitting = reference.Owner
+                fitting_id = _id_value(fitting.Id)
+                if fitting_id in seen or fitting_id == _id_value(duct.Id):
+                    continue
+                if not _category_is(fitting, BuiltInCategory.OST_DuctFitting):
+                    continue
+                part_type = fitting.MEPModel.PartType
+                if str(part_type).lower().split(".")[-1] != "elbow":
+                    continue
+                try:
+                    points.append(_point_tuple(reference.Origin))
+                    seen.add(fitting_id)
+                    continue
+                except Exception:
+                    pass
+                location = fitting.Location
+                if hasattr(location, "Point"):
+                    points.append(_point_tuple(location.Point))
+                    seen.add(fitting_id)
+                    continue
+                fitting_connectors = fitting.MEPModel.ConnectorManager.Connectors
+                origins = [_point_tuple(item.Origin) for item in fitting_connectors]
+                if origins:
+                    points.append(tuple(sum(point[index] for point in origins) / len(origins) for index in range(3)))
+                    seen.add(fitting_id)
+            except Exception:
+                continue
+    return points
+
+
+def _scan_duct(document, view, duct, curve, duct_bounds, force_all_walls=False, elbow_skips=None):
     candidates = []
     host_outline = _outline(duct_bounds, BOUNDING_BOX_PADDING_FEET)
     for wall in _collect_walls(document, view.Id, host_outline):
-        rating = _wall_rating(wall, document)
-        if rating in RATED_CLASSIFICATIONS:
+        rating = _wall_rating(wall, document) if not force_all_walls else None
+        if force_all_walls or rating in RATED_CLASSIFICATIONS:
             candidates.append((wall, None, document, "host"))
 
     for linked_document, link_transform in _visible_links(document, view):
@@ -326,8 +418,8 @@ def _scan_duct(document, view, duct, curve, duct_bounds):
                 _outline(link_bounds, BOUNDING_BOX_PADDING_FEET),
             )
             for wall in link_walls:
-                rating = _wall_rating(wall, linked_document)
-                if rating in RATED_CLASSIFICATIONS:
+                rating = _wall_rating(wall, linked_document) if not force_all_walls else None
+                if force_all_walls or rating in RATED_CLASSIFICATIONS:
                     candidates.append((wall, link_transform, linked_document, "linked"))
         except RegenerationFailedException:
             raise
@@ -337,6 +429,7 @@ def _scan_duct(document, view, duct, curve, duct_bounds):
     options = SolidCurveIntersectionOptions()
     options.ResultType = SolidCurveIntersectionMode.CurveSegmentsInside
     crossings = []
+    elbow_points = _connected_elbow_points(duct)
     for wall, transform, wall_document, source in candidates:
         try:
             solids = _geometry_solids(wall)
@@ -352,8 +445,33 @@ def _scan_duct(document, view, duct, curve, duct_bounds):
                 host_solid = SolidUtils.CreateTransformed(solid, transform) if transform is not None else solid
                 intersections = host_solid.IntersectWithCurve(curve, options)
                 for segment_index in range(intersections.SegmentCount):
-                    point = intersections.GetCurveSegment(segment_index).Evaluate(0.5, True)
-                    coordinates = _point_tuple(point)
+                    segment = intersections.GetCurveSegment(segment_index)
+                    midpoint = segment.Evaluate(0.5, True)
+                    if elbow_points:
+                        curve_samples = [
+                            _point_tuple(segment.Evaluate(sample_index / 100.0, True))
+                            for sample_index in range(101)
+                        ]
+                        coordinates = closest_clear_point(
+                            curve_samples,
+                            elbow_points,
+                            ELBOW_CLEARANCE_FEET,
+                        )
+                        if coordinates is None:
+                            if elbow_skips is not None:
+                                try:
+                                    skipped_label = wall_document.GetElement(wall.GetTypeId()).Name
+                                except Exception:
+                                    skipped_label = str(_id_value(wall.Id))
+                                elbow_skips.append(
+                                    "Duct {} crossing wall '{}' skipped: no point within the wall thickness clears a connected elbow by {} mm.".format(
+                                        _id_value(duct.Id), skipped_label, int(DEFAULT_ELBOW_CLEARANCE_MM)
+                                    )
+                                )
+                            continue
+                    else:
+                        coordinates = _point_tuple(midpoint)
+                    point = DB.XYZ(coordinates[0], coordinates[1], coordinates[2])
                     if any(
                         points_within_radius(coordinates, crossing[0], GEOMETRY_TOLERANCE_FEET)
                         for crossing in crossings
@@ -525,6 +643,10 @@ def main():
     radius_feet = _choose_duplicate_radius()
     if radius_feet is None:
         return
+    wall_mode = _choose_wall_mode()
+    if wall_mode is None:
+        return
+    force_all_walls = wall_mode == "All actual wall crossings (force placement)"
 
     if not _current_context_matches(document, view_id):
         forms.alert("The active project or view changed. Run the tool again in the target view.", exitscript=False)
@@ -532,6 +654,7 @@ def main():
 
     duct_runs = []
     scan_errors = []
+    elbow_skips = []
     for duct in ducts:
         try:
             location = duct.Location
@@ -541,7 +664,15 @@ def main():
                 scan_errors.append("Duct {} has no usable curve or bounding box.".format(_id_value(duct.Id)))
                 duct_runs.append((_id_value(duct.Id), []))
                 continue
-            crossings = _scan_duct(document, view, duct, curve, bounds)
+            crossings = _scan_duct(
+                document,
+                view,
+                duct,
+                curve,
+                bounds,
+                force_all_walls=force_all_walls,
+                elbow_skips=elbow_skips,
+            )
             duct_runs.append((_id_value(duct.Id), crossings))
         except RegenerationFailedException:
             raise
@@ -589,9 +720,21 @@ def main():
                 break
 
     summary = (
-        "Checked {} ducts; found {} rated-wall crossings; placed {} dampers; "
-        "skipped {} duplicates; {} ducts had errors."
-    ).format(len(duct_runs), total_crossings, placed, duplicates, failed_ducts)
+        "Checked {} ducts; found {} {} crossings; placed {} dampers; "
+        "skipped {} duplicates and {} crossings near elbows; {} ducts had errors."
+    ).format(
+        len(duct_runs),
+        total_crossings,
+        "actual wall" if force_all_walls else "rated-wall",
+        placed,
+        duplicates,
+        len(elbow_skips),
+        failed_ducts,
+    )
+    if elbow_skips:
+        summary += "\n\nFirst elbow clearance skip: {}".format(elbow_skips[0])
+        if len(elbow_skips) > 1:
+            summary += "\n{} additional elbow-related crossing(s) were skipped.".format(len(elbow_skips) - 1)
     if stopped:
         summary += "\nProcessing stopped because the active project or view changed."
     if scan_errors:
