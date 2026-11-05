@@ -12,6 +12,30 @@ def _normalize_username(value):
         return ""
 
 
+def _collect_category_options(doc, view):
+    categories = {}
+    elements = DB.FilteredElementCollector(doc, view.Id).WhereElementIsNotElementType()
+    for element in elements:
+        try:
+            category = element.Category
+            if category is not None:
+                categories[category.Id.IntegerValue] = category
+        except Exception:
+            continue
+
+    name_counts = {}
+    for category in categories.values():
+        name = category.Name or "Unnamed category"
+        name_counts[name] = name_counts.get(name, 0) + 1
+
+    options = {}
+    for category_id, category in categories.items():
+        name = category.Name or "Unnamed category"
+        label = "{} [{}]".format(name, category_id) if name_counts[name] > 1 else name
+        options[label] = category.Id
+    return options
+
+
 def main():
     doc = revit.doc
     uidoc = revit.uidoc
@@ -32,12 +56,34 @@ def main():
         forms.alert("Revit did not provide a current username.", title="My View Elements")
         return
 
+    category_options = _collect_category_options(doc, active_view)
+    if not category_options:
+        forms.alert("No categorized elements were found in the active view.", title="My View Elements")
+        return
+
+    selected_categories = forms.SelectFromList.show(
+        sorted(category_options.keys(), key=lambda value: value.lower()),
+        multiselect=True,
+        title="Select categories to scan",
+    )
+    if not selected_categories:
+        return
+
+    category_ids = List[DB.ElementId]()
+    for category_label in selected_categories:
+        category_ids.Add(category_options[category_label])
+
     matches = List[DB.ElementId]()
     created_count = 0
     owned_count = 0
     unreadable_count = 0
 
-    elements = DB.FilteredElementCollector(doc, active_view.Id).WhereElementIsNotElementType()
+    category_filter = DB.ElementMulticategoryFilter(category_ids)
+    elements = (
+        DB.FilteredElementCollector(doc, active_view.Id)
+        .WherePasses(category_filter)
+        .WhereElementIsNotElementType()
+    )
     for element in elements:
         try:
             info = DB.WorksharingUtils.GetWorksharingTooltipInfo(doc, element.Id)
@@ -56,9 +102,10 @@ def main():
 
     result = (
         "Selected {0} elements in '{1}'.\n\n"
-        "Created by you: {2}\n"
-        "Currently owned by you: {3}"
-    ).format(matches.Count, active_view.Name, created_count, owned_count)
+        "Categories scanned: {2}\n"
+        "Created by you: {3}\n"
+        "Currently owned by you: {4}"
+    ).format(matches.Count, active_view.Name, len(selected_categories), created_count, owned_count)
     if unreadable_count:
         result += "\n\nCould not check worksharing data for {0} elements.".format(unreadable_count)
 
