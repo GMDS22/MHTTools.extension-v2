@@ -1,0 +1,6 @@
+title:
+  en_us: NWB
+layout:
+  - NWB Data Validator
+  - NWB_PARAMETERS AutoFill
+  - NWB Dim AutoFill
