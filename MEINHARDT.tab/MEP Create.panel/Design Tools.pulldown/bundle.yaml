@@ -3,6 +3,7 @@ layout:
   - QuickDimension
   - HOST
   - LINK
+  - Copy Linked Elements
   - Linked Room Region
   - CombineFilledRegions
   - S2A
