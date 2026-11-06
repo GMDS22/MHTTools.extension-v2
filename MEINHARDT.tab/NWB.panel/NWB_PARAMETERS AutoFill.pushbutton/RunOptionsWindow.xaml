@@ -182,6 +182,7 @@
                             <RowDefinition Height="Auto"/>
                             <RowDefinition Height="Auto"/>
                             <RowDefinition Height="Auto"/>
+                            <RowDefinition Height="Auto"/>
                         </Grid.RowDefinitions>
 
                         <TextBlock Grid.Row="0" Grid.ColumnSpan="4" Text="Run Options" FontSize="15" FontWeight="Bold" Margin="0,0,0,12"/>
@@ -221,6 +222,7 @@
                             <RowDefinition Height="Auto"/>
                             <RowDefinition Height="Auto"/>
                             <RowDefinition Height="Auto"/>
+                            <RowDefinition Height="Auto"/>
                         </Grid.RowDefinitions>
 
                         <TextBlock Grid.Row="0" Grid.ColumnSpan="4" Text="Detected Project Information" FontSize="15" FontWeight="Bold" Margin="0,0,0,12"/>
@@ -239,6 +241,11 @@
                         <TextBox Grid.Row="3" Grid.Column="1" x:Name="txtDetectedProjectNumber" IsReadOnly="True"/>
                         <TextBlock Grid.Row="3" Grid.Column="2" Margin="12,4,10,0" Text="Selected MEP elements"/>
                         <TextBox Grid.Row="3" Grid.Column="3" x:Name="txtSelectedCount" IsReadOnly="True"/>
+
+                        <TextBlock Grid.Row="4" Grid.Column="0" Margin="0,4,10,0" Text="Asset authoring discipline"/>
+                        <ComboBox Grid.Row="4" Grid.Column="1" x:Name="cmbAuthoringDiscipline"/>
+                        <TextBlock Grid.Row="4" Grid.Column="2" Grid.ColumnSpan="2" Margin="12,4,0,0" Foreground="{StaticResource MutedText}"
+                                   Text="Required to write NWB_Discipline. Choose the discipline of the team that created the asset."/>
                     </Grid>
                 </Border>
 
@@ -304,6 +311,19 @@
                         <TextBlock Grid.Row="1" Grid.Column="0" Margin="0,4,10,0" Text="Active view"/>
                         <TextBox Grid.Row="1" Grid.Column="1" x:Name="txtActiveView" IsReadOnly="True"/>
                     </Grid>
+                </Border>
+
+                <Border Background="{StaticResource PanelBg}" BorderBrush="{StaticResource BorderBrush}" BorderThickness="1" Padding="14" Margin="0,0,0,12">
+                    <StackPanel>
+                        <TextBlock Text="Parameters to update and manual overrides" FontSize="15" FontWeight="Bold" Margin="0,0,0,8"/>
+                        <TextBlock Foreground="{StaticResource MutedText}" Margin="0,0,0,10"
+                                   Text="All parameters are selected by default. Uncheck any parameter you do not want to process. A non-empty override is applied to every processed element for its selected parameter. NWB_Discipline uses the authoring discipline selected above."/>
+                        <StackPanel Orientation="Horizontal" Margin="0,0,0,8">
+                            <Button Content="Select all" Click="select_all_targets_click"/>
+                            <Button Content="Select none" Click="select_no_targets_click"/>
+                        </StackPanel>
+                        <StackPanel x:Name="spNwbParameterRows"/>
+                    </StackPanel>
                 </Border>
             </StackPanel>
         </ScrollViewer>

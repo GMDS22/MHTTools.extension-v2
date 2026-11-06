@@ -295,6 +295,8 @@ class SizeParseResult(object):
         self.height = height
         self.length = length
         self.diameter = diameter
+        self.sources = {}
+        self.reasons = {}
 
 
 def _build_worksharing_choices():
@@ -484,10 +486,19 @@ DIM_AUDIT_COLUMNS = [
     "level",
     "name",
     "size_text",
+    "dimension_unit",
     "parsed_width",
     "parsed_height",
     "parsed_length",
     "parsed_diameter",
+    "width_source",
+    "height_source",
+    "length_source",
+    "diameter_source",
+    "width_reason",
+    "height_reason",
+    "length_reason",
+    "diameter_reason",
     "target_parameter",
     "requested_value",
     "actual_before",
@@ -573,10 +584,19 @@ def _build_dim_audit_context(run_context, element, size_text, parsed):
             "level": _get_level_name(element),
             "name": _get_element_name(element),
             "size_text": _safe_str(size_text),
+            "dimension_unit": "mm",
             "parsed_width": _safe_str(getattr(parsed, "width", "")),
             "parsed_height": _safe_str(getattr(parsed, "height", "")),
             "parsed_length": _safe_str(getattr(parsed, "length", "")),
             "parsed_diameter": _safe_str(getattr(parsed, "diameter", "")),
+            "width_source": _safe_str((getattr(parsed, "sources", {}) or {}).get("width", "")),
+            "height_source": _safe_str((getattr(parsed, "sources", {}) or {}).get("height", "")),
+            "length_source": _safe_str((getattr(parsed, "sources", {}) or {}).get("length", "")),
+            "diameter_source": _safe_str((getattr(parsed, "sources", {}) or {}).get("diameter", "")),
+            "width_reason": _safe_str((getattr(parsed, "reasons", {}) or {}).get("width", "")),
+            "height_reason": _safe_str((getattr(parsed, "reasons", {}) or {}).get("height", "")),
+            "length_reason": _safe_str((getattr(parsed, "reasons", {}) or {}).get("length", "")),
+            "diameter_reason": _safe_str((getattr(parsed, "reasons", {}) or {}).get("diameter", "")),
         }
     )
     return context
@@ -984,19 +1004,29 @@ def _parse_size(size_text):
         return SizeParseResult()
 
     text = _safe_str(size_text).strip()
+    unit_name = _explicit_text_unit(text)
+    if not unit_name:
+        return SizeParseResult()
+
+    source_unit = _unit_id_for_text(unit_name)
     width = None
     height = None
     diameter = None
 
     rect = _first_largest_rect_pair(text)
     if rect:
-        width, height, _ = rect
+        width = _format_dimension_text(_convert_length_to_mm(float(rect[0]), source_unit))
+        height = _format_dimension_text(_convert_length_to_mm(float(rect[1]), source_unit))
 
     diameter = _largest_diameter(text)
+    if diameter is not None:
+        diameter = _format_dimension_text(_convert_length_to_mm(float(diameter), source_unit))
     if diameter is None and width is None and height is None:
-        match = re.match(r"^\s*(\d+(?:[\.,]\d+)?)\s*(?:mm)?\s*$", text, re.IGNORECASE)
+        match = re.match(r"^\s*(\d+(?:[\.,]\d+)?)\s*.*$", text, re.IGNORECASE)
         if match:
-            diameter = match.group(1).replace(",", ".")
+            diameter = _format_dimension_text(
+                _convert_length_to_mm(float(match.group(1).replace(",", ".")), source_unit)
+            )
 
     return SizeParseResult(width=width, height=height, diameter=diameter)
 
@@ -1025,40 +1055,133 @@ def _format_dimension_text(raw_number):
     return ("{0:.3f}".format(rounded)).rstrip("0").rstrip(".")
 
 
+def _is_length_parameter(param):
+    try:
+        from Autodesk.Revit.DB import SpecTypeId
+        return param.Definition.GetDataType() == SpecTypeId.Length
+    except Exception:
+        try:
+            from Autodesk.Revit.DB import ParameterType
+            return param.Definition.ParameterType == ParameterType.Length
+        except Exception:
+            return False
+
+
+def _millimeters_unit_id():
+    try:
+        from Autodesk.Revit.DB import UnitTypeId
+        return UnitTypeId.Millimeters
+    except Exception:
+        from Autodesk.Revit.DB import DisplayUnitType
+        return DisplayUnitType.DUT_MILLIMETERS
+
+
+def _unit_id_for_text(unit_name):
+    unit_name = _safe_str(unit_name).strip().lower()
+    modern_names = {
+        "mm": "Millimeters",
+        "cm": "Centimeters",
+        "m": "Meters",
+        "in": "Inches",
+        "ft": "Feet",
+    }
+    legacy_names = {
+        "mm": "DUT_MILLIMETERS",
+        "cm": "DUT_CENTIMETERS",
+        "m": "DUT_METERS",
+        "in": "DUT_DECIMAL_INCHES",
+        "ft": "DUT_DECIMAL_FEET",
+    }
+    try:
+        from Autodesk.Revit.DB import UnitTypeId
+        return getattr(UnitTypeId, modern_names[unit_name])
+    except Exception:
+        from Autodesk.Revit.DB import DisplayUnitType
+        return getattr(DisplayUnitType, legacy_names[unit_name])
+
+
+def _convert_length_to_mm(value, source_unit):
+    from Autodesk.Revit.DB import UnitUtils
+    internal_value = UnitUtils.ConvertToInternalUnits(float(value), source_unit)
+    return UnitUtils.ConvertFromInternalUnits(internal_value, _millimeters_unit_id())
+
+
+def _convert_internal_length_to_mm(value):
+    from Autodesk.Revit.DB import UnitUtils
+    return UnitUtils.ConvertFromInternalUnits(float(value), _millimeters_unit_id())
+
+
+def _explicit_text_unit(text):
+    matches = re.findall(
+        r"(?i)millimet(?:er|re)s?|(?<![A-Za-z])mm\b|centimet(?:er|re)s?|(?<![A-Za-z])cm\b|met(?:er|re)s?|(?<![A-Za-z])m\b|inches?|(?<![A-Za-z])in\b|[\"″]|feet|foot|(?<![A-Za-z])ft\b|['′]",
+        _safe_str(text),
+    )
+    if not matches:
+        return ""
+    unit_names = set()
+    for token in matches:
+        token = token.lower()
+        if token in ("mm", "millimeter", "millimeters", "millimetre", "millimetres"):
+            unit_names.add("mm")
+        elif token in ("cm", "centimeter", "centimeters", "centimetre", "centimetres"):
+            unit_names.add("cm")
+        elif token in ("m", "meter", "meters", "metre", "metres"):
+            unit_names.add("m")
+        elif token in ("in", "inch", "inches", '"', "″"):
+            unit_names.add("in")
+        elif token in ("ft", "feet", "foot", "'", "′"):
+            unit_names.add("ft")
+    if len(unit_names) != 1:
+        return ""
+    return list(unit_names)[0]
+
+
+def _explicit_dimension_text_to_mm(raw_text):
+    text = _safe_str(raw_text).strip()
+    unit_name = _explicit_text_unit(text)
+    if not unit_name:
+        return ""
+    match = re.search(r"[-+]?\d+(?:[\.,]\d+)?", text)
+    if not match:
+        return ""
+    try:
+        value = float(match.group(0).replace(",", "."))
+        return _format_dimension_text(_convert_length_to_mm(value, _unit_id_for_text(unit_name)))
+    except Exception:
+        return ""
+
+
 def _read_numeric_dimension_from_param(param):
     if param is None:
         return ""
 
     try:
-        if param.StorageType == StorageType.Double:
-            # For double parameters, get the display value without conversion
-            value_str = param.AsValueString()
-            if value_str:
-                return _format_dimension_text(_extract_first_number(value_str))
-        if param.StorageType == StorageType.Integer:
-            # Integer parameters are typically already in display units
-            return _format_dimension_text(param.AsInteger())
+        if not param.HasValue:
+            return ""
+        if param.StorageType == StorageType.Double and _is_length_parameter(param):
+            return _format_dimension_text(_convert_internal_length_to_mm(param.AsDouble()))
+        if param.StorageType == StorageType.String:
+            return _explicit_dimension_text_to_mm(param.AsString())
     except Exception:
-        pass
+        return ""
+    return ""
 
-    return _extract_numeric_dimension_text(_read_stringish(param))
+
+def _read_numeric_dimension_source_by_name(element, names):
+    for scope, owner in [("instance", element), ("type", _get_type_element(element))]:
+        if owner is None:
+            continue
+        for name in names:
+            param = _find_param(owner, name)
+            value = _read_numeric_dimension_from_param(param)
+            if value:
+                return value, "{0}:{1}".format(scope, name)
+    return "", ""
 
 
 def _read_numeric_dimension_by_name(element, names):
-    for name in names:
-        param = _find_param(element, name)
-        value = _read_numeric_dimension_from_param(param)
-        if value:
-            return value
-
-    type_el = _get_type_element(element)
-    for name in names:
-        param = _find_param(type_el, name)
-        value = _read_numeric_dimension_from_param(param)
-        if value:
-            return value
-
-    return ""
+    value, unused_source = _read_numeric_dimension_source_by_name(element, names)
+    return value
 
 
 def _normalize_dimension_name(name):
@@ -1294,46 +1417,67 @@ def _get_element_size_data(element):
             if not _is_blank(size_text):
                 break
 
+    parsed = SizeParseResult()
+    is_duct_fitting = _has_category(element, BuiltInCategory.OST_DuctFitting)
+    is_pipe_fitting = _has_category(element, BuiltInCategory.OST_PipeFitting)
+    if is_duct_fitting or is_pipe_fitting:
+        width, width_source = _read_numeric_dimension_source_by_name(
+            element, ["MHT_WIDTH", "Body Width", "Overall Body Width"]
+        )
+        height, height_source = _read_numeric_dimension_source_by_name(
+            element, ["MHT_HEIGHT", "Body Height", "Overall Body Height"]
+        )
+        diameter, diameter_source = _read_numeric_dimension_source_by_name(
+            element, ["MHT_DIAMETER", "Body Diameter", "Overall Body Diameter", "Nominal Diameter"]
+        )
+        parsed.width = width
+        parsed.height = height
+        parsed.diameter = diameter
+        parsed.length = None
+        parsed.sources.update({
+            "width": width_source,
+            "height": height_source,
+            "diameter": diameter_source,
+        })
+        if not width:
+            parsed.reasons["width"] = "ambiguous fitting geometry: no explicit body-width parameter; connector-size text was not used"
+        if not height:
+            parsed.reasons["height"] = "ambiguous fitting geometry: no explicit vertical body-height parameter; connector-size text was not used"
+        if not diameter:
+            parsed.reasons["diameter"] = "no explicit fitting body/run diameter parameter; connector sizes were not guessed"
+        parsed.reasons["length"] = "no verified horizontal start-to-end fitting length source"
+        return size_text, parsed
+
     parsed = _parse_size(size_text)
+    for dimension in ("width", "height", "diameter"):
+        if getattr(parsed, dimension):
+            parsed.sources[dimension] = "unit-qualified size text"
+    width_names = ["MHT_WIDTH", "Width", "Duct Width", "Face Width", "Overall Width"]
+    height_names = ["MHT_HEIGHT", "Height", "Duct Height", "Face Height", "Overall Height"]
+    diameter_names = [
+        "MHT_DIAMETER", "Nominal Diameter", "Diameter", "Dia", "Duct Diameter",
+        "Flex Duct Diameter", "Trade Size",
+    ]
+    length_names = ["MHT_LENGTH", "Length", "Overall Length"]
+    for dimension, names in [
+        ("width", width_names),
+        ("height", height_names),
+        ("diameter", diameter_names),
+        ("length", length_names),
+    ]:
+        value, source = _read_numeric_dimension_source_by_name(element, names)
+        if value:
+            setattr(parsed, dimension, value)
+            parsed.sources[dimension] = source
 
-    # Read Length as displayed text (no conversion, no calculation)
-    length_value = _read_parameter_display_text_by_name(
-        element,
-        ["MHT_LENGTH", "Length", "Face Length", "Overall Length", "L_size", "L Size"],
-    )
-    if length_value:
-        parsed.length = length_value
-        if _is_blank(size_text):
-            size_text = length_value
+    if not parsed.diameter:
+        parsed.diameter = _read_numeric_dimension_by_bip(element, "RBS_CURVE_DIAMETER_PARAM")
+        if parsed.diameter:
+            parsed.sources["diameter"] = "built-in:RBS_CURVE_DIAMETER_PARAM"
 
-    if _is_blank(parsed.diameter):
-        diameter_value = _read_numeric_dimension_by_name(
-            element,
-            ["Nominal Diameter", "Diameter", "Dia", "Duct Diameter", "Flex Duct Diameter", "Trade Size"],
-        )
-        if not diameter_value:
-            diameter_value = _read_numeric_dimension_by_bip(element, "RBS_CURVE_DIAMETER_PARAM")
-        if diameter_value:
-            parsed.diameter = diameter_value
-            if _is_blank(size_text):
-                size_text = diameter_value
-
-    if _has_category(element, BuiltInCategory.OST_DuctTerminal):
-        size_text, parsed = _resolve_air_terminal_size_data(element, size_text, parsed)
-
-    if _has_category(element, BuiltInCategory.OST_FlexDuctCurves) and _is_blank(parsed.diameter):
-        diameter_text = _read_numeric_dimension_by_name(
-            element,
-            ["Diameter", "Duct Diameter", "Flex Duct Diameter", "Nominal Diameter", "Dia"]
-        )
-        if _is_blank(diameter_text):
-            diameter_text = _read_numeric_dimension_by_bip(element, "RBS_CURVE_DIAMETER_PARAM")
-        diameter_value = _extract_numeric_dimension_text(diameter_text)
-        if diameter_value:
-            parsed.diameter = diameter_value
-            if _is_blank(size_text):
-                size_text = diameter_text
-
+    for dimension in ("width", "height", "diameter", "length"):
+        if not getattr(parsed, dimension):
+            parsed.reasons[dimension] = "no unit-safe numeric length parameter or unit-qualified size text was found"
     return size_text, parsed
 
 
@@ -2179,12 +2323,21 @@ def _apply_pending_write(pending):
 def _set_if_needed(element, target_param_name, incoming_value, mode, parameter_target_mode, counters, pending_writes, logger=None, audit=None, audit_context=None):
     if _is_blank(incoming_value):
         counters["skip_no_source"] += 1
+        reason_key = {
+            "NWB_DimWidth": "width_reason",
+            "NWB_DimHeight": "height_reason",
+            "NWB_DimLength": "length_reason",
+            "NWB_DimDiameter": "diameter_reason",
+        }.get(target_param_name, "")
+        reason = _safe_str((audit_context or {}).get(reason_key, "")).strip()
+        if not reason:
+            reason = "no unit-safe dimension source"
         if audit is not None:
             row = _build_dim_audit_row(audit_context, element, target_param_name, incoming_value)
             row["outcome"] = "SKIP"
-            row["reason"] = "no parsed value"
+            row["reason"] = reason
             audit.write_row(row)
-        return "SKIP", "no parsed value"
+        return "SKIP", reason
 
     targets, resolution_reason, all_candidates = _find_param_target(element, target_param_name, parameter_target_mode, logger)
     candidate_count = len(all_candidates)
@@ -2682,12 +2835,16 @@ def run():
 
                     size_text, parsed = _get_element_size_data(element)
                     audit_context = _build_dim_audit_context(run_audit_context, element, size_text, parsed)
-                    if _is_blank(size_text):
+                    if all(_is_blank(getattr(parsed, dimension)) for dimension in ("width", "height", "length", "diameter")):
                         counters["no_size"] += 1
-                        _monitor_add_item(monitor, "[{0}] Skipped | Size empty".format(counters["processed"]), eid)
+                        unresolved = "; ".join(
+                            ["{0}: {1}".format(name, parsed.reasons.get(name, "unresolved")) for name in ("width", "height", "length", "diameter")]
+                        )
+                        _monitor_add_item(monitor, "[{0}] Skipped | No reliable dimensions".format(counters["processed"]), eid)
                         logger.write(
-                            "SKIP | Element {0} | Size empty | Cat={1} | Family={2} | Type={3} | Level={4} | Name={5}".format(
+                            "SKIP | Element {0} | No reliable dimensions | {1} | Cat={2} | Family={3} | Type={4} | Level={5} | Name={6}".format(
                                 eid,
+                                unresolved,
                                 _get_category_name(element),
                                 _get_family_name(element),
                                 _get_type_name(element),
@@ -2698,7 +2855,7 @@ def run():
                         if audit is not None:
                             row = _build_dim_audit_row(audit_context, element, "", "")
                             row["outcome"] = "SKIP"
-                            row["reason"] = "size empty"
+                            row["reason"] = unresolved
                             audit.write_row(row)
                         if counters["processed"] % 10 == 0 or counters["processed"] == total:
                             pb.update_progress(counters["processed"], total)
@@ -2710,23 +2867,19 @@ def run():
                         "NWB_DimLength": parsed.length,
                         "NWB_DimDiameter": parsed.diameter,
                     }
-
-                    length_source_name, length_source_param, displayed_length = _read_parameter_display_source_by_name(
-                        element,
-                        ["MHT_LENGTH", "Length", "Face Length", "Overall Length", "L_size", "L Size"],
-                    )
-                    if displayed_length:
-                        logger.write(
-                            "LENGTH DEBUG | Element={0} | Category={1} | SourceParam={2} | "
-                            "SourceStorageType={3} | DisplayValue='{4}' | FinalTarget='{5}'".format(
-                                eid,
-                                _get_category_name(element),
-                                length_source_name,
-                                _safe_str(getattr(length_source_param, "StorageType", "")),
-                                displayed_length,
-                                _safe_str(target_values.get("NWB_DimLength", "")),
-                            )
+                    logger.write(
+                        "DIMENSIONS | Unit=mm | Element={0} | Width={1} ({2}) | Height={3} ({4}) | Length={5} ({6}) | Diameter={7} ({8})".format(
+                            eid,
+                            _safe_str(parsed.width),
+                            parsed.sources.get("width", ""),
+                            _safe_str(parsed.height),
+                            parsed.sources.get("height", ""),
+                            _safe_str(parsed.length),
+                            parsed.sources.get("length", ""),
+                            _safe_str(parsed.diameter),
+                            parsed.sources.get("diameter", ""),
                         )
+                    )
 
                     statuses = []
                     for param_name in TARGET_PARAMETERS:

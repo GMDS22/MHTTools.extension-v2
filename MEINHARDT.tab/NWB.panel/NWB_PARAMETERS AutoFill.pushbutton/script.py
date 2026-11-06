@@ -14,6 +14,8 @@ from System import Type, Activator
 from System.Collections.Generic import List
 from System.Reflection import BindingFlags
 from System.Runtime.InteropServices import Marshal
+from System.Windows import Thickness
+from System.Windows.Controls import CheckBox, Orientation, StackPanel, TextBox
 
 from Autodesk.Revit.DB import (
     BuiltInCategory,
@@ -450,6 +452,7 @@ def _load_run_settings(selected_count):
         "wbs01_override": getattr(config, "nwb_params_wbs01_override", ""),
         "design_pkg_override": getattr(config, "nwb_params_design_pkg_override", ""),
         "building_permit_override": getattr(config, "nwb_params_building_permit_override", ""),
+        "authoring_discipline": getattr(config, "nwb_params_authoring_discipline", ""),
     }
 
     valid_worksharing = [value for _, value in _build_worksharing_choices()]
@@ -485,6 +488,7 @@ def _save_run_settings(settings):
         config.nwb_params_wbs01_override = settings.get("wbs01_override", "")
         config.nwb_params_design_pkg_override = settings.get("design_pkg_override", "")
         config.nwb_params_building_permit_override = settings.get("building_permit_override", "")
+        config.nwb_params_authoring_discipline = settings.get("authoring_discipline", "")
         script.save_config()
     except Exception:
         pass
@@ -513,7 +517,7 @@ def _run_option_bool(option_name, default=False):
 
 
 class RunSetupWindow(WPFWindow):
-    def __init__(self, xaml_file_name, selected_count, active_view_name, defaults, project_snapshot):
+    def __init__(self, xaml_file_name, selected_count, active_view_name, defaults, project_snapshot, wb_data):
         WPFWindow.__init__(self, xaml_file_name)
         self.result = None
         self._write_choices = list(WRITE_MODE_CHOICES)
@@ -521,6 +525,12 @@ class RunSetupWindow(WPFWindow):
         self._worksharing_choices = _build_worksharing_choices()
         self._scope_choices = _build_processing_scope_choices(selected_count)
         self._linked_room_choices = _collect_linked_room_choices()
+        self._discipline_choices = [("Select discipline...", "")]
+        for code in sorted(wb_data.discipline_code_to_desc):
+            desc = _safe_str(wb_data.discipline_code_to_desc.get(code, "")).strip()
+            label = "{0} - {1}".format(code, desc) if desc else code
+            self._discipline_choices.append((label, code))
+        self._parameter_controls = {}
 
         self.txtActiveView.Text = _safe_str(active_view_name)
         self.txtSelectedCount.Text = str(max(0, int(selected_count)))
@@ -529,6 +539,11 @@ class RunSetupWindow(WPFWindow):
         self.txtDetectedBuildingNumber.Text = self._display_value(project_snapshot.get("building_number", ""))
         self.txtDetectedProjectName.Text = self._display_value(project_snapshot.get("project_name", ""))
         self.txtDetectedProjectNumber.Text = self._display_value(project_snapshot.get("project_number", ""))
+        self._bind_combo(
+            self.cmbAuthoringDiscipline,
+            self._discipline_choices,
+            defaults.get("authoring_discipline", ""),
+        )
 
         self._bind_combo(self.cmbWriteMode, self._write_choices, defaults.get("write_mode", "smart"))
         self._bind_combo(self.cmbParameterTargetMode, self._target_choices, defaults.get("parameter_target_mode", DEFAULT_PARAMETER_TARGET_MODE))
@@ -545,6 +560,7 @@ class RunSetupWindow(WPFWindow):
         self.txtDesignPkgOverride.Text = _safe_str(defaults.get("design_pkg_override", ""))
         self.txtBuildingPermitOverride.Text = _safe_str(defaults.get("building_permit_override", ""))
         self.chkExportAudit.IsChecked = bool(defaults.get("export_audit", True))
+        self._build_parameter_controls()
 
         if len(self._worksharing_choices) == 1:
             self.cmbWorksharingMode.IsEnabled = False
@@ -575,7 +591,52 @@ class RunSetupWindow(WPFWindow):
             index = 0
         return choices[index][1]
 
+    def _build_parameter_controls(self):
+        self.spNwbParameterRows.Children.Clear()
+        for param_name in TARGET_PARAMETERS:
+            row = StackPanel()
+            row.Orientation = Orientation.Horizontal
+            row.Margin = Thickness(0, 0, 0, 2)
+
+            checkbox = CheckBox()
+            checkbox.Content = param_name
+            checkbox.Width = 260
+            checkbox.IsChecked = True
+            row.Children.Add(checkbox)
+
+            override_box = None
+            if param_name != "NWB_Discipline":
+                override_box = TextBox()
+                override_box.Width = 420
+                override_box.Margin = Thickness(0, 1, 0, 5)
+                override_box.ToolTip = "Optional direct value override for {0}".format(param_name)
+                row.Children.Add(override_box)
+
+            self._parameter_controls[param_name] = (checkbox, override_box)
+            self.spNwbParameterRows.Children.Add(row)
+
+    def select_all_targets_click(self, sender, e):
+        for checkbox, _ in self._parameter_controls.values():
+            checkbox.IsChecked = True
+
+    def select_no_targets_click(self, sender, e):
+        for checkbox, _ in self._parameter_controls.values():
+            checkbox.IsChecked = False
+
     def start_click(self, sender, e):
+        selected_parameters = []
+        manual_overrides = {}
+        for param_name in TARGET_PARAMETERS:
+            checkbox, override_box = self._parameter_controls[param_name]
+            if bool(checkbox.IsChecked):
+                selected_parameters.append(param_name)
+                if override_box is not None:
+                    manual_overrides[param_name] = _safe_str(override_box.Text).strip()
+
+        if not selected_parameters:
+            forms.alert("Select at least one parameter to update.", title=TOOL_TITLE)
+            return
+
         self.result = {
             "write_mode": self._selected_combo_value(self.cmbWriteMode, self._write_choices),
             "parameter_target_mode": self._selected_combo_value(self.cmbParameterTargetMode, self._target_choices),
@@ -589,6 +650,9 @@ class RunSetupWindow(WPFWindow):
             "wbs01_override": _safe_str(self.txtWbs01Override.Text).strip(),
             "design_pkg_override": _safe_str(self.txtDesignPkgOverride.Text).strip(),
             "building_permit_override": _safe_str(self.txtBuildingPermitOverride.Text).strip(),
+            "authoring_discipline": self._selected_combo_value(self.cmbAuthoringDiscipline, self._discipline_choices),
+            "selected_parameters": selected_parameters,
+            "manual_overrides": manual_overrides,
         }
         self.Close()
 
@@ -657,6 +721,9 @@ PARAM_AUDIT_COLUMNS = [
     "write_mode",
     "parameter_target_mode",
     "worksharing_mode",
+    "selected_parameters",
+    "authoring_discipline",
+    "value_source",
     "element_id",
     "category",
     "family",
@@ -1668,12 +1735,12 @@ def _choose_processing_scope(selected_count):
     return "view"
 
 
-def _prompt_run_settings(selected_count, active_view_name):
+def _prompt_run_settings(selected_count, active_view_name, wb_data):
     defaults = _load_run_settings(selected_count)
     project_snapshot = _get_project_info_snapshot()
 
     try:
-        dialog = RunSetupWindow("RunOptionsWindow.xaml", selected_count, active_view_name, defaults, project_snapshot)
+        dialog = RunSetupWindow("RunOptionsWindow.xaml", selected_count, active_view_name, defaults, project_snapshot, wb_data)
         dialog.ShowDialog()
     except Exception as ex:
         forms.alert(
@@ -1685,8 +1752,86 @@ def _prompt_run_settings(selected_count, active_view_name):
     if not dialog.result:
         return None
 
-    _save_run_settings(dialog.result)
     return dialog.result
+
+
+def _validate_manual_overrides(overrides, selected_parameters, wb_data):
+    normalized = dict(overrides or {})
+    errors = []
+    wbs_names = {
+        "NWB_WBS00": "WBS00",
+        "NWB_WBS01": "WBS01",
+        "NWB_WBS02": "WBS02",
+        "NWB_WBS03": "WBS03",
+        "NWB_WBS04": "WBS04",
+        "NWB_WBS05": "WBS05",
+    }
+
+    for parameter_name, bucket_name in wbs_names.items():
+        value = _safe_str(normalized.get(parameter_name, "")).strip()
+        if not value or parameter_name not in selected_parameters:
+            continue
+        code = _valid_wbs_code(value, wb_data.wbs_maps[bucket_name])
+        if not code:
+            errors.append("{0} must be a code from the workbook's {1} list.".format(parameter_name, bucket_name))
+        else:
+            normalized[parameter_name] = code
+
+    value = _safe_str(normalized.get("NWB_WBSCode", "")).strip()
+    if value and "NWB_WBSCode" in selected_parameters:
+        valid_codes = set()
+        for bucket in wb_data.wbs_maps.values():
+            valid_codes.update(bucket["code_to_desc"].keys())
+        parts = [part.strip().upper() for part in value.split("-") if part.strip()]
+        if not parts or any(part not in valid_codes for part in parts):
+            errors.append("NWB_WBSCode must contain workbook WBS codes separated by hyphens.")
+        else:
+            normalized["NWB_WBSCode"] = "-".join(parts)
+
+    value = _safe_str(normalized.get("NWB_DesignPkg", "")).strip()
+    if value and "NWB_DesignPkg" in selected_parameters:
+        code = value.upper()
+        if code not in wb_data.work_package_codes:
+            errors.append("NWB_DesignPkg must be a package code from the workbook.")
+        else:
+            normalized["NWB_DesignPkg"] = code
+
+    value = _safe_str(normalized.get("NWB_BuildingPermitPkg", "")).strip()
+    if value and "NWB_BuildingPermitPkg" in selected_parameters:
+        canonical = _canonical_building_permit(value, wb_data)
+        if canonical not in wb_data.building_permit_items:
+            errors.append("NWB_BuildingPermitPkg must match a building permit package in the workbook.")
+        else:
+            normalized["NWB_BuildingPermitPkg"] = canonical
+
+    return normalized, errors
+
+
+def _validate_contextual_overrides(settings, wb_data):
+    normalized = dict(settings or {})
+    errors = []
+    checks = [
+        ("wbs01_override", "WBS01", "WBS01"),
+        ("design_pkg_override", "NWB_DesignPkg", "package"),
+        ("building_permit_override", "NWB_BuildingPermitPkg", "permit"),
+    ]
+    for setting_name, label, kind in checks:
+        value = _safe_str(normalized.get(setting_name, "")).strip()
+        if not value:
+            continue
+        if kind == "WBS01":
+            canonical = _valid_wbs_code(value, wb_data.wbs_maps["WBS01"])
+        elif kind == "package":
+            canonical = value.upper() if value.upper() in wb_data.work_package_codes else ""
+        else:
+            canonical = _canonical_building_permit(value, wb_data)
+            if canonical not in wb_data.building_permit_items:
+                canonical = ""
+        if not canonical:
+            errors.append("{0} must match a valid value in the workbook.".format(label))
+        else:
+            normalized[setting_name] = canonical
+    return normalized, errors
 
 
 def _current_username():
@@ -1803,6 +1948,9 @@ def _missing_source_reason(target_param_name, audit_context):
         if room_source:
             return "linked/direct room subdepartment unavailable ({0})".format(room_source)
         return "linked/direct room subdepartment unavailable"
+
+    if target_param_name == "NWB_Discipline":
+        return "Choose the asset authoring discipline in Project Information before updating NWB_Discipline"
 
     return "no source value"
 
@@ -3735,7 +3883,36 @@ def _get_project_context(wb_data):
     return context
 
 
-def _derive_element_facts(element):
+def _derive_element_facts(element, requested_parameters=None):
+    requested = set(requested_parameters or [])
+    room_targets = set([
+        "NWB_Department", "NWB_SubDepartment", "NWB_RoomID", "NWB_RoomName",
+        "NWB_System", "NWB_Discipline",
+    ])
+    if requested and requested.issubset(room_targets):
+        facts = {}
+        if "NWB_System" in requested:
+            facts["system"] = _get_system_classification(element)
+        if requested.intersection(set([
+            "NWB_Department", "NWB_SubDepartment", "NWB_RoomID", "NWB_RoomName",
+        ])):
+            linked_room = _get_linked_room_context(element)
+            direct_department = _get_department_text(element)
+            direct_subdepartment = _get_subdepartment_text(element)
+            facts.update({
+                "linked_room_department": _safe_str(linked_room.get("department", "")).strip(),
+                "linked_room_subdepartment": _safe_str(linked_room.get("subdepartment", "")).strip(),
+                "linked_room_name": _safe_str(linked_room.get("room_name", "")).strip(),
+                "linked_room_number": _safe_str(linked_room.get("room_number", "")).strip(),
+                "linked_room_link_name": _safe_str(linked_room.get("link_name", "")).strip(),
+                "linked_room_source": _safe_str(linked_room.get("source", "")).strip(),
+                "linked_room_building": _safe_str(linked_room.get("building", "")).strip(),
+                "linked_room_site": _safe_str(linked_room.get("site", "")).strip(),
+            })
+            facts["department"] = facts["linked_room_department"] or direct_department
+            facts["subdepartment"] = facts["linked_room_subdepartment"] or direct_subdepartment
+        return facts
+
     facts = {}
     facts["element"] = element
     linked_room = _get_linked_room_context(element)
@@ -4057,79 +4234,7 @@ def _discipline_code_from_value(raw_value, wb_data):
 
 
 def _derive_discipline_code(facts, asset_row, wb_data):
-    from_asset = _row_value(asset_row, "NWB_Discipline") if asset_row else ""
-    code = _discipline_code_from_value(from_asset, wb_data)
-    if code:
-        return code
-
-    code = _discipline_code_from_value(facts.get("existing_discipline", ""), wb_data)
-    if code:
-        return code
-
-    code = _discipline_code_from_value(_derive_discipline_hint(facts), wb_data)
-    if code:
-        return code
-
-    search = " ".join(
-        [
-            facts.get("category_norm", ""),
-            facts.get("family_norm", ""),
-            facts.get("type_norm", ""),
-            facts.get("name_norm", ""),
-            facts.get("system_norm", ""),
-            facts.get("material_norm", ""),
-        ]
-    )
-
-    if "security" in search or "cctv" in search or "access control" in search or "intruder" in search:
-        return "IS"
-    if (
-        "ict" in search
-        or "data" in search
-        or "communication" in search
-        or "telephone" in search
-        or "nurse call" in search
-        or "intercom" in search
-        or "audio visual" in search
-        or "a/v" in search
-        or "fiber" in search
-        or "fibre" in search
-    ):
-        return "IC"
-    if "sprinkler" in search or "fire" in search or "smoke" in search or "detector" in search or "alarm" in search:
-        return "FR"
-    if (
-        "cable tray" in search
-        or "cable ladder" in search
-        or "conduit" in search
-        or "electrical" in search
-        or "lighting" in search
-        or "switchboard" in search
-        or "distribution board" in search
-        or "panelboard" in search
-        or "power" in search
-        or "socket" in search
-    ):
-        return "EL"
-
-    cat = facts["category_norm"]
-    if "duct" in cat or "mechanical" in cat or "air" in cat:
-        return "ME"
-    if "pipe" in cat or "plumbing" in cat or "hydraulic" in search or "drainage" in search or "sanitary" in search:
-        return "MH"
-    if "sprinkler" in cat or "fire" in cat:
-        return "FR"
-    if "security" in cat:
-        return "IS"
-    if "data" in cat or "communication" in cat or "telephone" in cat or "nurse call" in cat:
-        return "IC"
-    if "cable" in cat or "conduit" in cat or "electrical" in cat or "lighting" in cat:
-        return "EL"
-
-    if "utility" in search:
-        return "UT"
-
-    return "ME"
+    return _discipline_code_from_value(_run_option_text("authoring_discipline"), wb_data)
 
 
 def _match_wbs_code_by_level(level_name, wbs_bucket):
@@ -4484,71 +4589,138 @@ def _derive_building_permit_pkg(facts, asset_row, wb_data, design_pkg):
     return _canonical_building_permit(pkg.get("associated_bp", ""), wb_data)
 
 
-def _build_target_values(element, wb_data):
-    facts = _derive_element_facts(element)
-    asset_row, asset_score = _select_asset_row(wb_data.asset_rows, facts)
+def _build_target_values(element, wb_data, requested_parameters, manual_overrides=None):
+    manual_overrides = dict(manual_overrides or {})
+    requested = set(requested_parameters or [])
+    needs = set(requested)
+
+    def has_override(name):
+        return not _is_blank(manual_overrides.get(name, ""))
+
+    for name in requested:
+        if has_override(name):
+            needs.discard(name)
+
+    if "NWB_AssetID" in needs:
+        needs.update(["NWB_AssetTypeCode", "NWB_WBS01", "NWB_WBS02"])
+    if "NWB_WBSCode" in needs:
+        needs.update(["NWB_WBS00", "NWB_WBS01", "NWB_WBS02", "NWB_WBS03", "NWB_WBS04", "NWB_WBS05"])
+    if "NWB_BuildingPermitPkg" in needs:
+        if not has_override("NWB_DesignPkg") and not _run_option_text("design_pkg_override"):
+            needs.add("NWB_DesignPkg")
+
+    lightweight_targets = set(["NWB_Discipline", "NWB_System"])
+    room_targets = set([
+        "NWB_Department", "NWB_SubDepartment", "NWB_RoomID", "NWB_RoomName",
+        "NWB_System", "NWB_Discipline",
+    ])
+    facts_minimal = needs.issubset(room_targets)
+    if needs.issubset(lightweight_targets):
+        facts = {}
+        if "NWB_System" in needs:
+            facts["system"] = _get_system_classification(element)
+    elif facts_minimal:
+        facts = _derive_element_facts(element, needs)
+    else:
+        facts = _derive_element_facts(element, needs)
+
+    asset_targets = set([
+        "NWB_AssetTypeCode", "NWB_AssetID", "NWB_AssetType", "NWB_Category",
+        "NWB_Material", "NWB_UniclassCode", "NWB_UniclassDescription",
+        "NWB_DesignPkg", "NWB_BuildingPermitPkg", "NWB_WBS04", "NWB_WBS05",
+    ])
+    asset_row, asset_score = (None, 0)
+    if needs.intersection(asset_targets):
+        asset_row, asset_score = _select_asset_row(wb_data.asset_rows, facts)
 
     target = {}
-    target["NWB_AssetTypeCode"] = _clean_asset_value(_row_value(asset_row, "NWB_AssetTypeCode") if asset_row else "")
-    target["NWB_WBS01"] = _derive_wbs01(facts, wb_data)
-    target["NWB_WBS02"] = _derive_wbs02(facts, wb_data)
-    target["NWB_AssetID"], asset_id_rule, asset_id_reason = _derive_asset_id(
-        element,
-        asset_row,
-        target["NWB_AssetTypeCode"],
-        target["NWB_WBS01"],
-        target["NWB_WBS02"],
-    )
-    target["NWB_AssetType"] = _clean_asset_value(_row_value(asset_row, "NWB_AssetType") if asset_row else "")
+    asset_id_rule = ""
+    asset_id_reason = ""
 
-    discipline_code = _derive_discipline_code(facts, asset_row, wb_data)
-    target["NWB_Discipline"] = discipline_code
+    def assign(name, value):
+        override = _safe_str(manual_overrides.get(name, "")).strip()
+        target[name] = override or value
 
-    target["NWB_Category"] = _clean_asset_value(_row_value(asset_row, "NWB_Category") if asset_row else "")
-    if _is_blank(target["NWB_Category"]):
-        target["NWB_Category"] = _safe_str(facts.get("category", "")).strip()
+    if "NWB_AssetTypeCode" in needs:
+        assign("NWB_AssetTypeCode", _clean_asset_value(_row_value(asset_row, "NWB_AssetTypeCode") if asset_row else ""))
+    if "NWB_WBS00" in needs:
+        assign("NWB_WBS00", _derive_wbs00(facts, wb_data))
+    if "NWB_WBS01" in needs:
+        assign("NWB_WBS01", _derive_wbs01(facts, wb_data))
+    if "NWB_WBS02" in needs:
+        assign("NWB_WBS02", _derive_wbs02(facts, wb_data))
+    if "NWB_AssetID" in needs:
+        if has_override("NWB_AssetID"):
+            assign("NWB_AssetID", "")
+        else:
+            target["NWB_AssetID"], asset_id_rule, asset_id_reason = _derive_asset_id(
+                element, asset_row, target.get("NWB_AssetTypeCode", ""),
+                target.get("NWB_WBS01", ""), target.get("NWB_WBS02", ""),
+            )
+    if "NWB_AssetType" in needs:
+        assign("NWB_AssetType", _clean_asset_value(_row_value(asset_row, "NWB_AssetType") if asset_row else ""))
+    if "NWB_Discipline" in needs:
+        target["NWB_Discipline"] = _derive_discipline_code(facts, asset_row, wb_data)
+    if "NWB_Category" in needs:
+        category = _clean_asset_value(_row_value(asset_row, "NWB_Category") if asset_row else "")
+        assign("NWB_Category", category or _safe_str(facts.get("category", "")).strip())
+    if "NWB_Department" in needs:
+        assign("NWB_Department", _safe_str(facts.get("department", "")).strip())
+    if "NWB_SubDepartment" in needs:
+        assign("NWB_SubDepartment", _safe_str(facts.get("subdepartment", "")).strip())
+    if "NWB_RoomID" in needs:
+        assign("NWB_RoomID", _safe_str(facts.get("linked_room_number", "")).strip())
+    if "NWB_RoomName" in needs:
+        assign("NWB_RoomName", _safe_str(facts.get("linked_room_name", "")).strip())
+    if "NWB_Material" in needs:
+        material = _clean_asset_value(_row_value(asset_row, "NWB_Material") if asset_row else "")
+        assign("NWB_Material", material or _safe_str(facts.get("material", "")).strip())
+    if "NWB_System" in needs:
+        assign("NWB_System", _safe_str(facts.get("system", "")).strip())
+    if "NWB_UniclassCode" in needs:
+        assign("NWB_UniclassCode", _clean_asset_value(_row_value(asset_row, "NWB_UniclassCode") if asset_row else ""))
+    if "NWB_UniclassDescription" in needs:
+        assign("NWB_UniclassDescription", _clean_asset_value(_row_value(asset_row, "NWB_UniclassDescription") if asset_row else ""))
+    if "NWB_DesignPkg" in needs:
+        assign("NWB_DesignPkg", _derive_design_pkg(facts, asset_row, wb_data))
+    if "NWB_BuildingPermitPkg" in needs:
+        design_pkg_for_permit = _safe_str(manual_overrides.get("NWB_DesignPkg", "")).strip()
+        if not design_pkg_for_permit:
+            design_pkg_for_permit = target.get("NWB_DesignPkg", "")
+        assign("NWB_BuildingPermitPkg", _derive_building_permit_pkg(
+            facts, asset_row, wb_data, design_pkg_for_permit
+        ))
+    if "NWB_WBS03" in needs:
+        assign("NWB_WBS03", _derive_wbs03(facts, wb_data))
+    if "NWB_WBS04" in needs:
+        assign("NWB_WBS04", _derive_wbs04(facts, asset_row, wb_data))
+    if "NWB_WBS05" in needs:
+        assign("NWB_WBS05", _derive_wbs05(facts, asset_row, wb_data))
+    if "NWB_WBSCode" in needs:
+        target["NWB_WBSCode"] = _compose_wbs_code(
+            target.get("NWB_WBS00", ""),
+            target.get("NWB_WBS01", ""),
+            target.get("NWB_WBS02", ""),
+            target.get("NWB_WBS03", ""),
+            target.get("NWB_WBS04", ""),
+            target.get("NWB_WBS05", ""),
+        )
 
-    target["NWB_Department"] = _safe_str(facts.get("department", "")).strip()
-    target["NWB_SubDepartment"] = _safe_str(facts.get("subdepartment", "")).strip()
-    target["NWB_RoomID"] = _safe_str(facts.get("linked_room_number", "")).strip()
-    target["NWB_RoomName"] = _safe_str(facts.get("linked_room_name", "")).strip()
-
-    material = _clean_asset_value(_row_value(asset_row, "NWB_Material") if asset_row else "")
-    if _is_blank(material):
-        material = _safe_str(facts.get("material", "")).strip()
-    target["NWB_Material"] = material
-
-    system_text = _safe_str(facts.get("system", "")).strip()
-    target["NWB_System"] = system_text
-
-    target["NWB_UniclassCode"] = _clean_asset_value(_row_value(asset_row, "NWB_UniclassCode") if asset_row else "")
-    target["NWB_UniclassDescription"] = _clean_asset_value(_row_value(asset_row, "NWB_UniclassDescription") if asset_row else "")
-
-    target["NWB_DesignPkg"] = _derive_design_pkg(facts, asset_row, wb_data)
-    target["NWB_BuildingPermitPkg"] = _derive_building_permit_pkg(facts, asset_row, wb_data, target["NWB_DesignPkg"])
-
-    target["NWB_WBS00"] = _derive_wbs00(facts, wb_data)
-    target["NWB_WBS03"] = _derive_wbs03(facts, wb_data)
-    target["NWB_WBS04"] = _derive_wbs04(facts, asset_row, wb_data)
-    target["NWB_WBS05"] = _derive_wbs05(facts, asset_row, wb_data)
-    target["NWB_WBSCode"] = _compose_wbs_code(
-        target["NWB_WBS00"],
-        target["NWB_WBS01"],
-        target["NWB_WBS02"],
-        target["NWB_WBS03"],
-        target["NWB_WBS04"],
-        target["NWB_WBS05"],
-    )
+    for name in requested:
+        if has_override(name):
+            target[name] = _safe_str(manual_overrides.get(name, "")).strip()
 
     debug = {
         "asset_score": asset_score,
+        "asset_match_checked": bool(needs.intersection(asset_targets)),
+        "facts_minimal": facts_minimal,
         "asset_type": _row_value(asset_row, "NWB_AssetType") if asset_row else "",
         "asset_type_code": _row_value(asset_row, "NWB_AssetTypeCode") if asset_row else "",
         "asset_id_rule": asset_id_rule,
         "asset_id_reason": asset_id_reason,
         "asset_category": _row_value(asset_row, "NWB_Category") if asset_row else "",
-        "elemental_code": target["NWB_WBS05"],
-        "wbs_code": target["NWB_WBSCode"],
+        "elemental_code": target.get("NWB_WBS05", ""),
+        "wbs_code": target.get("NWB_WBSCode", ""),
         "facts": facts,
     }
     return target, debug
@@ -4787,21 +4959,61 @@ def run():
         return
 
     selected_elements = _get_selected_mep_elements()
-    run_settings = _prompt_run_settings(len(selected_elements), _safe_str(getattr(active_view, "Name", "")))
+    workbook_path = _build_workbook_path()
+    if not _validate_workbook_path(workbook_path):
+        forms.alert("Workbook not found:\n{0}".format(workbook_path), title=TOOL_TITLE)
+        return
+    try:
+        wb_data = _load_workbook_data(workbook_path)
+    except Exception as ex:
+        forms.alert(
+            "Failed to read workbook mapping data.\n\n"
+            "Workbook: {0}\n"
+            "Error type: {1}\n"
+            "Error: {2}".format(workbook_path, _safe_str(type(ex).__name__), _safe_str(ex)),
+            title=TOOL_TITLE,
+        )
+        return
+
+    run_settings = _prompt_run_settings(
+        len(selected_elements),
+        _safe_str(getattr(active_view, "Name", "")),
+        wb_data,
+    )
     if run_settings is None:
         forms.alert("Operation cancelled before processing.", title=TOOL_TITLE)
         return
-
-    _set_run_options(run_settings)
-    _reset_parameter_candidate_caches()
-    global _FAST_MODE_ACTIVE
-    _FAST_MODE_ACTIVE = bool(run_settings.get("fast_mode", False))
 
     write_mode = run_settings.get("write_mode", "smart")
     parameter_target_mode = run_settings.get("parameter_target_mode", DEFAULT_PARAMETER_TARGET_MODE)
     worksharing_mode = run_settings.get("worksharing_mode", "all")
     processing_scope = run_settings.get("processing_scope", "view")
     export_audit = bool(run_settings.get("export_audit", True))
+    selected_parameters = list(run_settings.get("selected_parameters", TARGET_PARAMETERS))
+    manual_overrides, override_errors = _validate_manual_overrides(
+        run_settings.get("manual_overrides", {}),
+        selected_parameters,
+        wb_data,
+    )
+    run_settings, contextual_override_errors = _validate_contextual_overrides(run_settings, wb_data)
+    override_errors.extend(contextual_override_errors)
+    if override_errors:
+        forms.alert("Correct the manual overrides before running:\n\n- {0}".format(
+            "\n- ".join(override_errors)
+        ), title=TOOL_TITLE)
+        return
+    run_settings["manual_overrides"] = manual_overrides
+    _save_run_settings(run_settings)
+    _set_run_options(run_settings)
+    _reset_parameter_candidate_caches()
+    global _FAST_MODE_ACTIVE
+    _FAST_MODE_ACTIVE = bool(run_settings.get("fast_mode", False))
+    if "NWB_Discipline" in selected_parameters and not _run_option_text("authoring_discipline"):
+        forms.alert(
+            "NWB_Discipline will be left unchanged because no asset authoring discipline was selected. "
+            "Choose a discipline in Project Information and run again to update it. Other selected parameters will continue.",
+            title=TOOL_TITLE,
+        )
 
     logger = RunLogger(os.path.dirname(__file__), TOOL_TITLE)
     audit = RunAuditExporter(logger.logs_dir, logger.safe_title, logger.stamp, export_audit, PARAM_AUDIT_COLUMNS)
@@ -4814,6 +5026,8 @@ def run():
         "write_mode": write_mode,
         "parameter_target_mode": parameter_target_mode,
         "worksharing_mode": worksharing_mode,
+        "selected_parameters": ",".join(selected_parameters),
+        "authoring_discipline": _run_option_text("authoring_discipline"),
     }
     logger.write("START | Tool={0}".format(TOOL_TITLE))
     logger.write("START | View={0}".format(_safe_str(getattr(active_view, "Name", ""))))
@@ -4823,6 +5037,11 @@ def run():
     logger.write("START | ParameterTargetMode={0}".format(parameter_target_mode))
     logger.write("START | WorksharingMode={0}".format(worksharing_mode))
     logger.write("START | ProcessingScope={0}".format(processing_scope))
+    logger.write("START | SelectedParameters={0}".format(",".join(selected_parameters)))
+    logger.write("START | AuthoringDiscipline={0}".format(_run_option_text("authoring_discipline")))
+    for param_name, override_value in sorted(manual_overrides.items()):
+        if not _is_blank(override_value):
+            logger.write("START | Override | {0}={1}".format(param_name, _safe_str(override_value)))
     logger.write("START | SelectedInputCount={0}".format(len(selected_elements)))
     selected_link = _resolve_selected_arch_room_link_instance()
     logger.write("START | ArchRoomLink={0}".format(_safe_str(getattr(selected_link, "Name", "AUTO")) or "AUTO"))
@@ -4854,40 +5073,10 @@ def run():
             title=TOOL_TITLE,
         )
 
-    workbook_path = _build_workbook_path()
     _monitor_set_status(monitor, "Checking workbook path...")
     _monitor_add_item(monitor, "Workbook: {0}".format(workbook_path))
     logger.write("WORKBOOK | {0}".format(workbook_path))
     _pump_ui()
-    if not _validate_workbook_path(workbook_path):
-        logger.write("ERROR | Workbook not found")
-        logger.close()
-        forms.alert("Workbook not found:\n{0}".format(workbook_path), title=TOOL_TITLE)
-        return
-
-    _monitor_set_status(monitor, "Reading workbook mapping data...")
-    _pump_ui()
-    try:
-        wb_data = _load_workbook_data(
-            workbook_path,
-            status_callback=lambda msg: (_monitor_set_status(monitor, msg), _pump_ui()),
-        )
-    except Exception as ex:
-        logger.write("ERROR | Workbook read failed | {0}: {1}".format(_safe_str(type(ex).__name__), _safe_str(ex)))
-        logger.close()
-        forms.alert(
-            "Failed to read workbook mapping data.\n\n"
-            "Workbook: {0}\n"
-            "Error type: {1}\n"
-            "Error: {2}".format(
-                workbook_path,
-                _safe_str(type(ex).__name__),
-                _safe_str(ex),
-            ),
-            title=TOOL_TITLE,
-        )
-        return
-
     _monitor_set_status(monitor, "Collecting target elements from active view...")
     _pump_ui()
     if processing_scope == "selection":
@@ -4995,9 +5184,11 @@ def run():
                             audit.write_row(row)
                         continue
 
-                    target_values, debug = _build_target_values(element, wb_data)
+                    target_values, debug = _build_target_values(
+                        element, wb_data, selected_parameters, manual_overrides
+                    )
                     audit_context = _build_param_audit_context(run_audit_context, element, debug, target_values)
-                    if int(debug.get("asset_score", 0)) <= 0:
+                    if debug.get("asset_match_checked") and int(debug.get("asset_score", 0)) <= 0:
                         counters["no_asset_match"] += 1
                         logger.write(
                             "NO ASSET MATCH | Element {0} | Cat={1} | Family={2} | Type={3} | System={4}".format(
@@ -5010,15 +5201,28 @@ def run():
                         )
 
                     statuses = [] if monitor is not None else None
-                    for param_name in TARGET_PARAMETERS:
+                    for param_name in selected_parameters:
                         incoming = target_values.get(param_name, "")
-                        st, msg = _set_if_needed(element, param_name, incoming, write_mode, parameter_target_mode, counters, pending_writes, logger, audit, audit_context)
+                        target_audit_context = dict(audit_context)
+                        if param_name in manual_overrides and not _is_blank(manual_overrides.get(param_name, "")):
+                            target_audit_context["value_source"] = "manual override"
+                        elif param_name == "NWB_Discipline":
+                            target_audit_context["value_source"] = "authoring discipline selection"
+                        elif param_name == "NWB_WBS01" and _run_option_text("wbs01_override"):
+                            target_audit_context["value_source"] = "WBS01 contextual override"
+                        elif param_name == "NWB_DesignPkg" and _run_option_text("design_pkg_override"):
+                            target_audit_context["value_source"] = "design package contextual override"
+                        elif param_name == "NWB_BuildingPermitPkg" and _run_option_text("building_permit_override"):
+                            target_audit_context["value_source"] = "building permit contextual override"
+                        else:
+                            target_audit_context["value_source"] = "automatic mapping"
+                        st, msg = _set_if_needed(element, param_name, incoming, write_mode, parameter_target_mode, counters, pending_writes, logger, audit, target_audit_context)
                         if statuses is not None:
                             statuses.append("{0}:{1}".format(param_name, st))
                         if st in ("FAIL", "PARTIAL") and len(sample_fails) < 12:
                             sample_fails.append("Element {0} | {1} | {2}".format(eid, param_name, msg))
 
-                    if not fast_mode:
+                    if not fast_mode and not debug.get("facts_minimal"):
                         _log_element_runtime_context(logger, element, eid, debug.get("facts", {}) or {}, target_values, debug)
 
                     if not fast_mode:
@@ -5030,7 +5234,7 @@ def run():
                                 debug.get("asset_type_code", ""),
                                 debug.get("asset_type", ""),
                                 debug.get("asset_category", ""),
-                                "; ".join(["{0}={1}".format(x, target_values.get(x, "")) for x in TARGET_PARAMETERS]),
+                                "; ".join(["{0}={1}".format(x, target_values.get(x, "")) for x in selected_parameters]),
                             )
                         )
 
@@ -5117,6 +5321,7 @@ def run():
     summary = [
         "{0} finished.".format(TOOL_TITLE),
         "View: {0} ({1})".format(_safe_str(getattr(active_view, "Name", "")), view_mode),
+        "Parameters selected: {0}".format(", ".join(selected_parameters)),
         "Processing scope: {0}".format(processing_scope),
         "Write mode: {0}".format(write_mode),
         "Parameter target mode: {0}".format(parameter_target_mode),
